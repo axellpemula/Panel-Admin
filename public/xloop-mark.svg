@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="512" height="512" fill="none" role="img" aria-label="XLOOP PANEL">
+  <!--
+    Logo XLOOP — "X" 3D (standalone, warna harfiah).
+    Versi di dalam aplikasi: components/ui/XloopMark.tsx (memakai token CSS).
+    Lapisan digeser diagonal 0.5 / 1 px dan dibedakan tone — tanpa gradient,
+    glow, atau filter.
+  -->
+  <path d="M18.364 5.636 L15.585 11.385 L18.364 18.364 L12.615 15.585 L5.636 18.364 L8.415 12.615 L5.636 5.636 L11.385 8.415 Z"
+        transform="translate(1 1)" fill="#7b442e" stroke="#7b442e" stroke-width="0.5" stroke-linejoin="round"/>
+  <path d="M18.364 5.636 L15.585 11.385 L18.364 18.364 L12.615 15.585 L5.636 18.364 L8.415 12.615 L5.636 5.636 L11.385 8.415 Z"
+        transform="translate(0.5 0.5)" fill="#b25b3b" stroke="#b25b3b" stroke-width="0.5" stroke-linejoin="round"/>
+  <path d="M18.364 5.636 L15.585 11.385 L18.364 18.364 L12.615 15.585 L5.636 18.364 L8.415 12.615 L5.636 5.636 L11.385 8.415 Z"
+        fill="#ff7c4c" stroke="#ff7c4c" stroke-width="0.5" stroke-linejoin="round"/>
+</svg>

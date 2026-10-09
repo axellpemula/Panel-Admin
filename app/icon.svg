@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="XLOOP PANEL">
+  <!-- Favicon: glyph X 3D di atas rounded square (favicon butuh bentuk latar),
+       memakai nilai token warna panel secara harfiah. -->
+  <rect x="0.5" y="0.5" width="31" height="31" rx="7" fill="#232220" stroke="#36342f"/>
+
+  <g transform="translate(4 4) scale(1)">
+    <path d="M18.364 5.636 L15.585 11.385 L18.364 18.364 L12.615 15.585 L5.636 18.364 L8.415 12.615 L5.636 5.636 L11.385 8.415 Z"
+          transform="translate(1 1)" fill="#7b442e" stroke="#7b442e" stroke-width="0.5" stroke-linejoin="round"/>
+    <path d="M18.364 5.636 L15.585 11.385 L18.364 18.364 L12.615 15.585 L5.636 18.364 L8.415 12.615 L5.636 5.636 L11.385 8.415 Z"
+          transform="translate(0.5 0.5)" fill="#b25b3b" stroke="#b25b3b" stroke-width="0.5" stroke-linejoin="round"/>
+    <path d="M18.364 5.636 L15.585 11.385 L18.364 18.364 L12.615 15.585 L5.636 18.364 L8.415 12.615 L5.636 5.636 L11.385 8.415 Z"
+          fill="#ff7c4c" stroke="#ff7c4c" stroke-width="0.5" stroke-linejoin="round"/>
+  </g>
+</svg>

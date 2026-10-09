@@ -1,0 +1,49 @@
+{
+  "name": "xloop-panel",
+  "version": "1.0.0",
+  "private": true,
+  "description": "XLOOP PANEL - Key Management Panel (Next.js 14 + Supabase + Ed25519 license validation)",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "generate-keypair": "node scripts/generate-keypair.mjs",
+    "make-sample": "node scripts/make-sample-response.mjs",
+    "demo": "node dev/local-server.mjs",
+    "local": "node dev/local-server.mjs",
+    "db:info": "node dev/sqlite-cli.mjs info",
+    "db:accounts": "node dev/sqlite-cli.mjs accounts",
+    "db:reset": "node dev/sqlite-cli.mjs reset",
+    "verify:validate": "node dev/validate-e2e-test.mjs",
+    "verify:sqlite": "node dev/sqlite-e2e-test.mjs",
+    "test:focus": "node dev/focus-test.mjs",
+    "test:sidebar": "node dev/sidebar-test.mjs"
+  },
+  "dependencies": {
+    "@supabase/ssr": "0.5.2",
+    "@supabase/supabase-js": "2.45.4",
+    "better-sqlite3": "^11.10.0",
+    "geist": "1.7.2",
+    "lucide-react": "^0.451.0",
+    "next": "14.2.15",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.12.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.11",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^14.2.15",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.13",
+    "typescript": "^5.6.3"
+  }
+}

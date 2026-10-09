@@ -1,0 +1,124 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Token warna XLOOP PANEL (dark only, tidak ada light mode).
+ * Komponen TIDAK boleh hardcode hex — selalu pakai token (bg-surface, text-muted, dst).
+ */
+:root {
+  --c-bg: 28 27 25; /* #1c1b19 */
+  --c-surface: 35 34 32; /* #232220 */
+  --c-surface-raised: 42 41 39; /* #2a2927 */
+  --c-border: 54 52 47; /* #36342f */
+  --c-text: 236 233 228; /* #ece9e4 */
+  --c-muted: 154 149 140; /* #9a958c */
+  --c-accent: 255 124 76; /* #ff7c4c */
+  --c-active: 111 174 130; /* #6fae82 */
+  --c-expired: 201 163 91; /* #c9a35b */
+  --c-banned: 201 100 92; /* #c9645c */
+
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    border-color: rgb(var(--c-border));
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    background-color: rgb(var(--c-bg));
+    color: rgb(var(--c-text));
+    font-size: 14px;
+    line-height: 20px;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-weight: 500;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: rgb(var(--c-muted));
+  }
+
+  /* Fokus selalu terlihat, memakai warna accent. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--c-accent));
+    outline-offset: 1px;
+    border-radius: 6px;
+  }
+
+  /* Scrollbar tipis, tidak dekoratif. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: rgb(var(--c-bg));
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--c-border));
+    border: 2px solid rgb(var(--c-bg));
+    border-radius: 6px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--c-muted));
+  }
+}
+
+@layer components {
+  /* Kartu dasar: border 1px, tanpa shadow. */
+  .card {
+    @apply rounded-card border border-border bg-surface;
+  }
+
+  /* Input teks / textarea / kontrol form. */
+  .field {
+    @apply w-full rounded-control border border-border bg-bg px-3 py-2 text-body text-text
+      transition-colors duration-150 ease-out hover:border-muted/60
+      disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  /* Baris tabel. */
+  .row-hover {
+    @apply transition-colors duration-150 ease-out hover:bg-surface-raised;
+  }
+
+  /* Fokus ring untuk item non-input (baris tabel, kartu yang bisa diklik). */
+  .ring-focus {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70;
+  }
+}
+
+/* Hormati prefers-reduced-motion — semua animasi dimatikan. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "_catatan": "Contoh response sukses /api/validate yang ditandatangani keypair contoh. Dipakai untuk menguji kode verifikasi client. Jangan pakai di production.",
+  "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASNdF+pXqGuedtanN/s7imPRrod2MDexQrYnkwAClTC8=\n-----END PUBLIC KEY-----",
+  "request": {
+    "key": "XLVP-AB12-CD34",
+    "tool_slug": "perkakas-pro",
+    "tool_version": "1.8.0",
+    "hardware_id": "a3f1b7c9d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e9",
+    "nonce": "n0nce_rahasia_32_karakter_abc123"
+  },
+  "response": {
+    "payload": "eyJ2YWxpZCI6dHJ1ZSwidG9vbCI6InBlcmtha2FzLXBybyIsInZlcnNpb24iOiIxLjguMCIsImV4cGlyZWRfYXQiOiIyMDI2LTExLTAyVDIzOjQwOjQ4LjI0M1oiLCJtYXhfZGV2aWNlIjoxLCJjdXJyZW50X2RldmljZXMiOjEsImhhcmR3YXJlX2lkIjoiYTNmMWI3YzlkNGU1ZjYwNzE4MjkzYTRiNWM2ZDdlOGY5YTBiMWMyZDNlNGY1MDYxNzI4Mzk0YTViNmM3ZDhlOSIsIm5vbmNlIjoibjBuY2VfcmFoYXNpYV8zMl9rYXJha3Rlcl9hYmMxMjMiLCJzZXJ2ZXJfdGltZSI6IjIwMjYtMTAtMDNUMjM6NDA6NDguMjQzWiIsInRva2VuX2V4cGlyZXNfYXQiOiIyMDI2LTEwLTAzVDIzOjU1OjQ4LjI0M1oiLCJzZWNyZXRfcGF5bG9hZCI6IntcIm1vZHVsXCI6XCJjb3JlXCIsXCJrdW5jaV9kZWtyaXBzaVwiOlwiY29udG9oLXNhamEtamFuZ2FuLWRpcGFrYWlcIn0ifQ==",
+    "signature": "plSyVa+MqjP47lyDvM1WFX+WZU2Kms3MMDqzQBxe5UyswlpgOIifzZVM5lprjV8Jq6LnQ+Ol9Mv7YZVdy5F2AQ=="
+  }
+}
