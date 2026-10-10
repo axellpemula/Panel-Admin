@@ -51,7 +51,7 @@ export function KeyChart({ data, title }: { data: ChartPoint[]; title: string })
               contentStyle={{
                 background: "rgb(var(--c-surface-raised))",
                 border: "1px solid rgb(var(--c-border))",
-                borderRadius: 8,
+                borderRadius: "var(--r-card, 8px)",
                 fontSize: 12,
                 color: "rgb(var(--c-text))",
               }}

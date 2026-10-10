@@ -16,10 +16,13 @@
   --c-text: 236 233 228; /* #ece9e4 */
   --c-muted: 154 149 140; /* #9a958c */
   --c-accent: 255 124 76; /* #ff7c4c */
-  --c-accent-fg: 32 20 15; /* teks di atas aksen (#20140f) — dihitung ulang oleh lib/theme.ts */
+  --c-accent-fg: 0 0 0; /* teks kontras di atas aksen — dihitung ulang oleh lib/theme.ts */
   --c-active: 111 174 130; /* #6fae82 */
   --c-expired: 201 163 91; /* #c9a35b */
-  --c-banned: 201 100 92; /* #c9645c */
+  /* Sedikit lebih terang agar status Banned tetap terbaca di semua palet gelap. */
+  --c-banned: 223 129 123; /* #df817b */
+  --r-control: 6px;
+  --r-card: 8px;
 
   color-scheme: dark;
 }
@@ -66,7 +69,7 @@
   :focus-visible {
     outline: 2px solid rgb(var(--c-accent));
     outline-offset: 1px;
-    border-radius: 6px;
+    border-radius: var(--r-control, 6px);
   }
 
   /* Scrollbar tipis, tidak dekoratif. */

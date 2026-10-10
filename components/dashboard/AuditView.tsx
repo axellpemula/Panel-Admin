@@ -223,7 +223,10 @@ export function AuditView({
             onClick={() => void load()}
             loading={loading}
             icon={<RefreshCw size={16} strokeWidth={1.5} />}
+            aria-label="Muat ulang audit log"
+            title="Muat ulang audit log"
           >
+            Muat ulang
           </Button>
           <Button
             size="sm"

@@ -118,7 +118,7 @@ function ToastRow({ item, onDismiss }: { item: ToastItem; onDismiss: () => void 
         type="button"
         onClick={onDismiss}
         aria-label="Tutup notifikasi"
-        className="shrink-0 rounded p-0.5 text-muted transition-colors duration-150 hover:text-text"
+        className="shrink-0 rounded-control p-0.5 text-muted transition-colors duration-150 hover:text-text"
       >
         <X size={14} strokeWidth={1.5} />
       </button>

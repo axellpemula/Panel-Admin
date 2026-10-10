@@ -27,8 +27,8 @@ const config: Config = {
         banned: "rgb(var(--c-banned) / <alpha-value>)",
       },
       borderRadius: {
-        control: "6px",
-        card: "8px",
+        control: "var(--r-control, 6px)",
+        card: "var(--r-card, 8px)",
       },
       fontSize: {
         label: ["12px", { lineHeight: "16px" }],

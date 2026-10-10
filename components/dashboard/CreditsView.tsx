@@ -153,7 +153,10 @@ export function CreditsView({ isOwner }: { isOwner: boolean }) {
             onClick={() => void load()}
             loading={loading}
             icon={<RefreshCw size={16} strokeWidth={1.5} />}
+            aria-label="Muat ulang credit log"
+            title="Muat ulang credit log"
           >
+            Muat ulang
           </Button>
           <Button
             size="sm"
