@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 import { addCredit } from "@/lib/api/credit";
 import { isUuid, withOwner } from "@/lib/api/auth";
-import { recentActivity, resellerSummary } from "@/lib/api/stats";
+import { recentActivity, resellerStats, resellerSummary } from "@/lib/api/stats";
 import type { ProfileRow } from "@/lib/types/database";
 import { errorMessage, jsonError, jsonOk } from "@/lib/utils/http";
 import { asBool, asEmail, asInt, asOptionalString, asPassword, asString } from "@/lib/utils/validate";
@@ -32,7 +32,11 @@ async function loadReseller(
   return { profile: data };
 }
 
-/** GET /api/resellers/[id] — detail reseller + riwayat credit. */
+/**
+ * GET /api/resellers/[id]?history_limit=
+ * Detail reseller + riwayat credit + statistik (total key per status, chart 7 hari).
+ * Dipakai modal cepat di daftar reseller dan halaman /resellers/[id].
+ */
 export async function GET(request: NextRequest, route: RouteParams) {
   return withOwner(request, async (ctx) => {
     const { id } = route.params;
@@ -41,9 +45,13 @@ export async function GET(request: NextRequest, route: RouteParams) {
     const { profile, error } = await loadReseller(ctx, id);
     if (error) return error;
 
-    const [summary, activity] = await Promise.all([
+    const historyRaw = Number(request.nextUrl.searchParams.get("history_limit") ?? 25);
+    const historyLimit = Number.isFinite(historyRaw) ? Math.min(200, Math.max(1, historyRaw)) : 25;
+
+    const [summary, activity, stats] = await Promise.all([
       resellerSummary(ctx.admin),
-      recentActivity(ctx.admin, { userId: id, limit: 25 }),
+      recentActivity(ctx.admin, { userId: id, limit: historyLimit }),
+      resellerStats(ctx.admin, id),
     ]);
 
     const row = summary.find((item) => item.id === id) ?? {
@@ -59,6 +67,8 @@ export async function GET(request: NextRequest, route: RouteParams) {
       reseller: row,
       created_at: profile!.created_at,
       history: activity,
+      totals: stats.totals,
+      chart: stats.chart,
     });
   });
 }

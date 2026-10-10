@@ -42,11 +42,11 @@ generate key, reseller, credit, sampai endpoint validasi publik yang **anti-bypa
 | Duration Setting | CRUD preset durasi (nama, hari, harga credit, harga aktif/nonaktif) |
 | Key List | Semua key, filter (status/tool/version/reseller), sort, pagination, detail + manajemen HWID, edit (perpanjang pakai preset / tambah hari / set tanggal / lifetime, bebas biaya), ban dengan **alasan terstruktur** (manual/refund/other + catatan), unban, hapus (key reseller aktif & belum expired → credit dikembalikan otomatis) |
 | Generate Key | Preset **atau** durasi custom (tanpa potongan credit), generate 1–100 key sekaligus, copy semua, export `.txt` |
-| Reseller | Tambah reseller (set password langsung), topup credit, aktif/nonaktif, reset password, edit data, hapus permanen |
+| Reseller | Tambah reseller (set password langsung), topup credit, aktif/nonaktif, reset password, edit data, hapus permanen. Klik username/Detail → **halaman detail** `/resellers/[id]`: statistik, grafik 7 hari, key terbaru, riwayat credit lengkap, riwayat login |
 | Credit Log | Semua transaksi credit, filter tanggal/aksi/reseller, export CSV |
 | Audit Log | Jejak aksi pada key: siapa yang ban/unban/hapus key/reset HWID (Owner, Reseller, atau sistem auto-ban), lengkap dengan alasan ban terstruktur & catatan. Filter tanggal/aksi/aktor/key, export CSV. **Unban auto-ban hanya bisa oleh Owner** |
 | Validation Attempts | Semua percobaan validasi key yang tercatat `/api/validate`: ringkasan sukses/gagal, **IP mencurigakan**, **key paling sering gagal** (breakdown alasan), **tren per jam** (grafik), daftar percobaan (filter tanggal/hasil/alasan/IP/key, pagination, export CSV). Data disimpan 7 hari. **Hanya Owner** |
-| Pengaturan | Menu paling bawah sidebar. **Info Akun** (username, email, role, ID akun), **Info Web** (versi panel, mode database, status signing key, TTL token, runtime, zona waktu, format key, batasan), dan **Tema Warna** (8 preset aksen atau hex custom + 4 palet dasar gelap) |
+| Pengaturan | Menu paling bawah sidebar. **Info Akun** (username, email, role, ID akun), **Info Web** (versi panel, mode database, status signing key, TTL token, runtime, zona waktu, format key, batasan), **Riwayat Login** (20 percobaan terakhir: waktu, perangkat, IP, sukses/gagal), **Kepadatan Tabel** (Nyaman/Kompak), dan **Tema Warna** (8 preset aksen atau hex custom + 4 palet dasar gelap) |
 
 **Role: Reseller**
 
@@ -56,7 +56,7 @@ generate key, reseller, credit, sampai endpoint validasi publik yang **anti-bypa
 | Key List | Hanya key miliknya, detail + reset HWID, edit — perpanjang **wajib** pakai preset Owner dan memotong credit (`harga preset × max device`; menambah max device ikut dikenakan) — ban dengan alasan terstruktur, hapus. **Unban auto-ban (HWID) tidak bisa** — hanya Owner yang bisa membukanya |
 | Generate Key | Preset durasi saja, biaya `harga preset × quantity × max device` dipotong otomatis, 1–50 key sekaligus |
 | Credit Log | Riwayat credit miliknya, export CSV |
-| Pengaturan | Info akun (termasuk **sisa credit**), info web ringkas, dan tema warna |
+| Pengaturan | Info akun (termasuk **sisa credit**), riwayat login, info web ringkas, kepadatan tabel, dan tema warna |
 
 **Endpoint publik**
 
@@ -131,6 +131,18 @@ Yang berlaku untuk Reseller:
   disimpan di cookie `xloop_theme` (`<palet>.<hex>`, 1 tahun) dan dibaca di `app/layout.tsx` di
   server — warna pilihan sudah final di HTML pertama, tanpa kedip. Warna teks di atas aksen
   (`--c-accent-fg`) dihitung otomatis (YIQ) supaya tombol utama tetap terbaca untuk aksen gelap.
+- **Topbar** menampilkan judul halaman aktif (dengan breadcrumb di halaman turunan), tombol **Cari…
+  (Ctrl/⌘ K)**, dan chip sisa credit untuk Reseller.
+- **Command palette** (Ctrl/⌘ K di mana saja): lompat ke menu sesuai role, aksi cepat (Generate key,
+  key aktif, tema, logout), dan **cari key** — ketik potongan `XLVP-…`, hasil muncul langsung dan
+  Enter membuka Key List dengan filter terisi (`/keys?q=`).
+- **Key List** punya kolom *Last used* (relatif, tooltip tanggal lengkap), tooltip waktu relatif di
+  kolom Expired, penanda **Segera expired** (≤ 3 hari), dan di layar HP tabelnya berubah menjadi
+  daftar kartu. Kepadatan baris (Nyaman 44px / Kompak 36px) diatur dari Pengaturan — cookie
+  `xloop_density`, diterapkan via class `density-compact` di `<html>` (`lib/density.ts`).
+- **Riwayat login** dicatat tabel `login_logs` oleh `/api/auth/login` untuk percobaan sukses maupun
+  gagal (email, IP, user-agent, alasan). User melihat miliknya di Pengaturan; Owner juga melihat milik
+  reseller di halaman detail reseller (`GET /api/auth/logins?user_id=`).
 - **Loading splash interaktif** saat login sukses sebelum masuk dashboard: latar grid bergerak,
   scan-line HUD, logo X 3D dengan napas/tilt, tiga lapis cincin orbit berputar (luar conic
   multi-segmen + titik cahaya, tengah dashed counter-rotate + titik aktif, dalam statis) dengan
@@ -250,12 +262,12 @@ root/
 │   │   ├── durations/             # Duration Setting (owner)
 │   │   ├── keys/                  # Key List
 │   │   ├── generate/              # Generate Key
-│   │   ├── resellers/             # Reseller Management (owner)
+│   │   ├── resellers/             # Reseller Management (owner) + [id]/ halaman detail reseller
 │   │   ├── credits/               # Credit Log
 │   │   ├── audit/                 # Audit Log (owner) — jejak ban/unban/hapus/reset HWID/auto-ban
-│   │   └── settings/              # Pengaturan: info akun, info web, tema warna
+│   │   └── settings/              # Pengaturan: info akun, riwayat login, info web, kepadatan, tema
 │   ├── api/
-│   │   ├── auth/                  # login, logout, session
+│   │   ├── auth/                  # login, logout, session, logins (riwayat login)
 │   │   ├── keys/                  # list, generate, edit, ban/unban, devices (HWID)
 │   │   ├── tools/                 # tool type, version, secret payload
 │   │   ├── durations/             # preset durasi
@@ -270,7 +282,7 @@ root/
 ├── components/
 │   ├── dashboard/                 # KeyTable, HwidModal, KeyEditModal, kartu statistik, chart, dsb
 │   ├── ui/                        # Button, Modal, ConfirmDialog, Select (custom), Badge, Toast, Skeleton, Form, CopyButton, EmptyState, Pagination, XloopMark (logo)
-│   └── layout/                    # DashboardShell, Sidebar (+toggle X 3D), Topbar, nav.ts
+│   └── layout/                    # DashboardShell, Sidebar (+toggle X 3D), Topbar, CommandPalette, nav.ts
 ├── lib/
 │   ├── api/                       # helper server: auth ctx, keys, stats, generate
 │   ├── db/sqlite/                 # mode SQLite: skema, seed, adapter supabase-like, auth, RPC
@@ -278,6 +290,7 @@ root/
 │   ├── types/                     # tipe Database + tipe UI
 │   ├── env.ts                     # pemilih mode database (Supabase ⇄ SQLite)
 │   ├── theme.ts                   # preset aksen/palet, cookie xloop_theme, CSS variable tema
+│   ├── density.ts                 # kepadatan tabel (cookie xloop_density, class density-compact)
 │   └── utils/                     # crypto (Ed25519 + key generator), format, csv, http, validate, cookie, cn
 ├── docs/
 │   ├── CLIENT_INTEGRATION.md      # cara verifikasi di sisi tool
@@ -320,7 +333,7 @@ root/
 `migration.sql` bersifat idempotent (aman dijalankan ulang) dan berisi:
 
 - tabel: `profiles`, `tool_types`, `tool_versions`, `duration_presets`, `keys`, `device_logs`,
-  `credit_logs`, `tool_secrets`, `validation_attempts`
+  `credit_logs`, `tool_secrets`, `validation_attempts`, `audit_logs`, `login_logs`
 - fungsi: `register_device` (atomic slot HWID), `spend_credit`, `add_credit`, `update_expired_keys`,
   `cleanup_validation_attempts`, `key_device_counts`, `key_counts_by_version`, `reseller_summary`,
   `is_owner`, `update_updated_at`

@@ -5,6 +5,7 @@ import { SettingsView, type AppInfo } from "@/components/dashboard/SettingsView"
 import { HWID_RESET, LIMITS, RATE_LIMIT } from "@/lib/constants";
 import { requireSession } from "@/lib/api/session";
 import { dbMode, licensePublicKey, licenseTokenTtlSeconds, sqliteDatabasePath } from "@/lib/env";
+import { DENSITY_COOKIE, parseDensity } from "@/lib/density";
 import { parseTheme, THEME_COOKIE } from "@/lib/theme";
 
 import nextPackage from "next/package.json";
@@ -59,6 +60,7 @@ export default async function SettingsPage() {
       }}
       appInfo={appInfo}
       initialTheme={parseTheme(cookies().get(THEME_COOKIE.name)?.value)}
+      initialDensity={parseDensity(cookies().get(DENSITY_COOKIE.name)?.value)}
     />
   );
 }

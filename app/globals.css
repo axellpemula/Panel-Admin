@@ -125,3 +125,34 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Kepadatan tabel "Kompak" — diatur dari menu Pengaturan               */
+/* (class `density-compact` di <html>, cookie xloop_density).           */
+/* Baris tabel 44px → 36px, padding sel dikurangi, font sedikit rapat.  */
+/* ------------------------------------------------------------------ */
+.density-compact table tbody tr {
+  height: 2.25rem;
+}
+.density-compact table thead th {
+  height: auto;
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+}
+.density-compact table tbody td {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+.density-compact table tbody td,
+.density-compact table thead th {
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+.density-compact table tbody td:first-child,
+.density-compact table thead th:first-child {
+  padding-left: 0.75rem;
+}
+.density-compact table tbody td:last-child,
+.density-compact table thead th:last-child {
+  padding-right: 0.75rem;
+}

@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import type { CSSProperties } from "react";
 
 import { ToastProvider } from "@/components/ui/Toast";
+import { DENSITY_CLASS, DENSITY_COOKIE, parseDensity } from "@/lib/density";
 import { parseTheme, THEME_COOKIE, themeColorHex, themeCssVariables } from "@/lib/theme";
 
 import "./globals.css";
@@ -38,11 +39,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   // CSS variable tema ditulis sebagai inline style di <html> supaya warna
   // pilihan user sudah final di HTML pertama — tidak berkedip dari default.
   const themeStyle = themeCssVariables(currentTheme()) as CSSProperties;
+  const compact = parseDensity(cookies().get(DENSITY_COOKIE.name)?.value) === "compact";
 
   return (
     <html
       lang="id"
-      className={`${geistSans.variable} ${geistMono.variable} dark`}
+      className={`${geistSans.variable} ${geistMono.variable} dark${compact ? ` ${DENSITY_CLASS}` : ""}`}
       style={themeStyle}
     >
       <body className="min-h-screen bg-bg font-sans text-body text-text antialiased">

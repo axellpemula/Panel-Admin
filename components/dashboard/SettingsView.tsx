@@ -1,9 +1,10 @@
 "use client";
 
-import { Check, Globe, Palette, RotateCcw, UserRound } from "lucide-react";
+import { Check, Globe, Palette, Rows3, RotateCcw, UserRound } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 
+import { LoginHistoryCard } from "@/components/dashboard/LoginHistoryCard";
 import { ActiveBadge, Badge, RoleBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { CopyButton } from "@/components/ui/CopyButton";
@@ -20,6 +21,12 @@ import {
   THEME_COOKIE,
   type ThemePreference,
 } from "@/lib/theme";
+import {
+  applyDensityToDocument,
+  DENSITY_COOKIE,
+  DENSITY_OPTIONS,
+  type Density,
+} from "@/lib/density";
 import { cn } from "@/lib/utils/cn";
 import { writeCookie } from "@/lib/utils/cookie";
 import { formatDate, formatNumber } from "@/lib/utils/format";
@@ -66,17 +73,19 @@ export function SettingsView({
   account,
   appInfo,
   initialTheme,
+  initialDensity,
 }: {
   account: AccountInfo;
   appInfo: AppInfo;
   initialTheme: ThemePreference;
+  initialDensity: Density;
 }) {
   return (
     <div className="space-y-6">
       <header>
         <h1 className="text-title font-medium">Pengaturan</h1>
         <p className="mt-1 text-body text-muted">
-          Info akun yang sedang login, info web panel, dan tampilan tema.
+          Info akun yang sedang login, riwayat login, info web panel, dan tampilan.
         </p>
       </header>
 
@@ -84,6 +93,10 @@ export function SettingsView({
         <AccountCard account={account} />
         <WebInfoCard appInfo={appInfo} isOwner={account.role === "owner"} />
       </div>
+
+      <LoginHistoryCard description="20 percobaan login terakhir ke akun ini — waktu, perangkat, dan alamat IP. Kalau ada yang tidak kamu kenali, segera ganti password." />
+
+      <DensityCard initialDensity={initialDensity} />
 
       <ThemeCard initialTheme={initialTheme} />
     </div>
@@ -238,6 +251,76 @@ function WebInfoCard({ appInfo, isOwner }: { appInfo: AppInfo; isOwner: boolean 
         ) : null}
       </dl>
     </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Kepadatan tabel                                                     */
+/* ------------------------------------------------------------------ */
+
+function DensityCard({ initialDensity }: { initialDensity: Density }) {
+  const toast = useToast();
+  const [density, setDensity] = useState<Density>(initialDensity);
+
+  const pick = (next: Density, label: string) => {
+    setDensity(next);
+    applyDensityToDocument(next);
+    writeCookie(DENSITY_COOKIE.name, next, DENSITY_COOKIE.maxAgeSeconds);
+    toast.success(`Kepadatan tabel: ${label}`);
+  };
+
+  return (
+    <section className="card overflow-hidden">
+      <CardHeader icon={<Rows3 size={16} strokeWidth={1.5} />} title="Kepadatan Tabel" />
+      <div className="space-y-3 px-4 py-4">
+        <p className="text-label text-muted">
+          Berlaku untuk semua tabel (Key List, Reseller, Credit, Log). Tersimpan di browser ini.
+        </p>
+        <div role="radiogroup" aria-label="Kepadatan tabel" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {DENSITY_OPTIONS.map((option) => {
+            const selected = option.id === density;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => pick(option.id, option.label)}
+                className={cn(
+                  "flex items-start gap-3 rounded-card border p-3 text-left transition-colors duration-150 ease-out",
+                  selected ? "border-accent/60 bg-accent/10" : "border-border bg-surface hover:bg-surface-raised",
+                )}
+              >
+                <DensityPreview compact={option.id === "compact"} />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5 text-body text-text">
+                    {option.label}
+                    {selected ? <Check size={14} strokeWidth={2} className="text-accent" /> : null}
+                  </span>
+                  <span className="block text-label text-muted">{option.description}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** Miniatur baris tabel: rapat vs longgar. */
+function DensityPreview({ compact }: { compact: boolean }) {
+  const rows = compact ? 5 : 3;
+  return (
+    <span
+      aria-hidden="true"
+      className="flex h-12 w-16 shrink-0 flex-col justify-center rounded-control border border-border bg-bg px-1.5"
+      style={{ gap: compact ? 3 : 7 }}
+    >
+      {Array.from({ length: rows }).map((_, index) => (
+        <span key={index} className="h-1 w-full rounded-sm bg-muted/50" />
+      ))}
+    </span>
   );
 }
 

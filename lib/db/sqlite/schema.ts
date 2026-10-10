@@ -142,6 +142,18 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   detail TEXT
 );
 
+-- Riwayat login (sukses & gagal) — tampil di menu Pengaturan.
+CREATE TABLE IF NOT EXISTS login_logs (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL,
+  user_id TEXT REFERENCES profiles(id) ON DELETE CASCADE,
+  email TEXT,
+  success INTEGER NOT NULL,
+  reason TEXT,
+  ip TEXT,
+  user_agent TEXT
+);
+
 CREATE TABLE IF NOT EXISTS auth_accounts (
   id TEXT PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,
@@ -181,6 +193,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_key_action_time
   ON audit_logs (key_id, action, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tool_versions_tool_type ON tool_versions (tool_type_id);
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions (user_id);
+CREATE INDEX IF NOT EXISTS idx_login_logs_user_time ON login_logs (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_login_logs_created_at ON login_logs (created_at DESC);
 `;
 
 /** Kolom boolean per tabel (INTEGER 0/1 di SQLite, boolean di JS). */
@@ -190,6 +204,7 @@ export const BOOLEAN_COLUMNS: Record<string, readonly string[]> = {
   tool_versions: ["is_active"],
   duration_presets: ["is_active"],
   validation_attempts: ["success"],
+  login_logs: ["success"],
 };
 
 /**

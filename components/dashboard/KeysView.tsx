@@ -52,17 +52,32 @@ interface DeleteResponse {
  * Halaman Key List: filter + search + sort + pagination + aksi per key.
  * Dipakai Owner (semua key) dan Reseller (key miliknya saja — filter role di server).
  */
-export function KeysView({ isOwner, currentUserId }: { isOwner: boolean; currentUserId: string }) {
+export function KeysView({
+  isOwner,
+  currentUserId,
+  initialQuery = "",
+  initialCreatedBy = "",
+  initialStatus = "",
+}: {
+  isOwner: boolean;
+  currentUserId: string;
+  /** Prefill pencarian dari URL `?q=` (dipakai command palette). */
+  initialQuery?: string;
+  /** Prefill filter pembuat dari URL `?created_by=` (dipakai detail reseller). */
+  initialCreatedBy?: string;
+  /** Prefill filter status dari URL `?status=`. */
+  initialStatus?: string;
+}) {
   const toast = useToast();
 
   const [filters, setFilters] = useState({
-    q: "",
-    status: "",
+    q: initialQuery,
+    status: ["active", "expired", "banned"].includes(initialStatus) ? initialStatus : "",
     toolTypeId: "",
     versionId: "",
-    createdBy: "",
+    createdBy: isOwner ? initialCreatedBy : "",
   });
-  const [searchInput, setSearchInput] = useState("");
+  const [searchInput, setSearchInput] = useState(initialQuery);
   const [sort, setSort] = useState<SortColumn>("created_at");
   const [order, setOrder] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);

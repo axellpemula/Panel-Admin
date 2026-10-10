@@ -150,6 +150,18 @@ export type AuditLogRow = {
   detail: Record<string, unknown> | null;
 };
 
+/** Riwayat login (sukses & gagal) — ditulis /api/auth/login, tampil di Pengaturan. */
+export type LoginLogRow = {
+  id: string;
+  created_at: string;
+  user_id: string | null;
+  email: string | null;
+  success: boolean;
+  reason: string | null;
+  ip: string | null;
+  user_agent: string | null;
+};
+
 type Table<Row, Insert = Partial<Row>, Update = Partial<Row>> = {
   Row: Row;
   Insert: Insert;
@@ -235,6 +247,17 @@ export interface Database {
           ban_reason?: BanReason | null;
           note?: string | null;
           detail?: Record<string, unknown> | null;
+        }
+      >;
+      login_logs: Table<
+        LoginLogRow,
+        {
+          user_id?: string | null;
+          email?: string | null;
+          success: boolean;
+          reason?: string | null;
+          ip?: string | null;
+          user_agent?: string | null;
         }
       >;
     };
