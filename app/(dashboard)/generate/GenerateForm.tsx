@@ -388,7 +388,7 @@ export function GenerateForm({
                 Expired:{" "}
                 {result.summary.expired_at ? formatDateTime(result.summary.expired_at) : LIFETIME_LABEL}
                 {!isOwner
-                  ? ` · credit terpakai ${formatNumber(result.summary.credit_cost)} (${result.summary.quantity} key x ${result.summary.max_device} device x ${formatNumber(result.summary.unit_price)}) · sisa ${formatNumber(result.summary.credit_balance_after)}`
+                  ? ` · credit terpakai ${formatNumber(result.summary.credit_cost)} · sisa ${formatNumber(result.summary.credit_balance_after)}`
                   : ""}
               </p>
             </div>

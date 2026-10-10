@@ -43,8 +43,8 @@ export interface KeyTableProps {
   emptyMessage?: string;
 }
 
-/** Key aktif yang expired dalam ≤ 3 hari dapat penanda "segera expired". */
-const EXPIRING_SOON_MS = 3 * 24 * 60 * 60 * 1000;
+/** Key aktif yang expired dalam ≤ 3 jam dapat penanda "segera expired". */
+const EXPIRING_SOON_MS = 3 * 60 * 60 * 1000;
 
 function isExpiringSoon(item: KeyListItem): boolean {
   if (item.status !== "active" || !item.expired_at) return false;

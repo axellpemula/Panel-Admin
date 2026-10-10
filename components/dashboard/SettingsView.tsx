@@ -164,8 +164,8 @@ function AccountCard({ account }: { account: AccountInfo }) {
 
       <p className="border-t border-border px-4 py-3 text-label text-muted">
         {isReseller
-          ? "Ingin ganti password atau data akun? Hubungi Owner — perubahan dilakukan dari menu Reseller."
-          : "Password Owner diganti lewat dashboard database (lihat README bagian 9)."}
+          ? "Ingin ganti password atau data akun? Hubungi Owner."
+          : "Password Owner diganti lewat dashboard database."}
       </p>
     </section>
   );
@@ -246,7 +246,7 @@ function WebInfoCard({ appInfo, isOwner }: { appInfo: AppInfo; isOwner: boolean 
         {isOwner ? (
           <InfoRow
             label="Retensi log validasi"
-            value={`${limits.attemptsRetentionDays} hari (dibersihkan cron harian)`}
+            value={`${limits.attemptsRetentionDays} hari`}
           />
         ) : null}
       </dl>
@@ -274,7 +274,7 @@ function DensityCard({ initialDensity }: { initialDensity: Density }) {
       <CardHeader icon={<Rows3 size={16} strokeWidth={1.5} />} title="Kepadatan Tabel" />
       <div className="space-y-3 px-4 py-4">
         <p className="text-label text-muted">
-          Berlaku untuk semua tabel (Key List, Reseller, Credit, Log). Tersimpan di browser ini.
+          Berlaku untuk semua tabel (Key List, Reseller, Credit, Log).
         </p>
         <div role="radiogroup" aria-label="Kepadatan tabel" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {DENSITY_OPTIONS.map((option) => {
@@ -364,7 +364,7 @@ function ThemeCard({ initialTheme }: { initialTheme: ThemePreference }) {
     pickAccent(normalized);
   };
 
-  const reset = () => commit(DEFAULT_THEME, "Tema dikembalikan ke bawaan");
+  const reset = () => commit(DEFAULT_THEME, "Tema dikembalikan ke default");
 
   const activePresetId = ACCENT_PRESETS.find((preset) => preset.hex === theme.accent)?.id ?? null;
 
@@ -380,7 +380,7 @@ function ThemeCard({ initialTheme }: { initialTheme: ThemePreference }) {
             disabled={isDefaultTheme(theme)}
             icon={<RotateCcw size={14} strokeWidth={1.5} />}
           >
-            Kembalikan bawaan
+            Reset
           </Button>
         }
       />
@@ -391,8 +391,7 @@ function ThemeCard({ initialTheme }: { initialTheme: ThemePreference }) {
           <div>
             <h3 className="text-body font-medium">Warna aksen</h3>
             <p className="text-label text-muted">
-              Dipakai untuk tombol utama, menu aktif, logo, dan sorotan. Perubahan langsung terlihat
-              dan tersimpan otomatis di browser ini.
+              Dipakai untuk tombol utama, menu aktif, logo, dan sorotan. Perubahan langsung terpasang.
             </p>
           </div>
 
@@ -526,7 +525,7 @@ function ThemeCard({ initialTheme }: { initialTheme: ThemePreference }) {
             <span className="font-mono text-[13px] text-text">XLVP-AB12-CD34</span>
           </div>
           <p className="text-label text-muted">
-            Preferensi tema disimpan di cookie browser ini (bukan di akun), jadi tiap perangkat bisa
+            Preferensi tema disimpan di cookie browser ini, jadi tiap perangkat bisa
             punya warna sendiri.
           </p>
         </div>

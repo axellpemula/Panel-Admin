@@ -228,8 +228,7 @@ export function ValidationAttemptsView() {
           <h1 className="text-title font-medium">Validation Attempts</h1>
           <p className="mt-1 text-body text-muted">
             Semua percobaan validasi key yang tercatat: IP mencurigakan, key yang paling sering
-            gagal, dan tren per jam. Data disimpan 7 hari terakhir (dibersihkan otomatis oleh
-            cron). Halaman ini hanya untuk Owner.
+            gagal, dan tren per jam. Data disimpan 7 hari terakhir.
           </p>
         </div>
         <div className="flex items-center gap-2">

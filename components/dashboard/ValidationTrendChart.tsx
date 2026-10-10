@@ -40,7 +40,7 @@ export function ValidationTrendChart({
         <div>
           <h2 className="text-body font-medium">Tren {hourly ? "per jam" : "per hari"}</h2>
           <p className="text-label text-muted">
-            Jumlah percobaan validasi {hourly ? "per jam" : "per hari"} (WIB)
+            Jumlah percobaan validasi {hourly ? "per jam" : "per hari"}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-4">
