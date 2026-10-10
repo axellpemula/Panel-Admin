@@ -1,6 +1,7 @@
 "use client";
 
 import { KeyRound, Pencil, Plus, ShieldOff, ShieldCheck, Trash2, Wallet } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { ActiveBadge } from "@/components/ui/Badge";
@@ -10,15 +11,9 @@ import { Field, Input } from "@/components/ui/Form";
 import { ConfirmDialog, Modal } from "@/components/ui/Modal";
 import { SkeletonRows } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
-import type { ActivityItem, TopReseller } from "@/lib/api/stats";
+import type { TopReseller } from "@/lib/api/stats";
 import { apiDelete, apiGet, apiPost, apiPut } from "@/lib/api/client";
 import { CREDIT_ACTION_LABEL, formatDateTime, formatNumber } from "@/lib/utils/format";
-
-interface ResellerDetail {
-  reseller: TopReseller;
-  created_at: string;
-  history: ActivityItem[];
-}
 
 /** Reseller Management (Owner): tambah, topup, aktif/nonaktif, reset password, hapus. */
 export function ResellersView() {
@@ -31,10 +26,6 @@ export function ResellersView() {
   const [createForm, setCreateForm] = useState({ username: "", email: "", password: "", credit: "0" });
   const [createError, setCreateError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-
-  const [detailId, setDetailId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<ResellerDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
 
   const [topupTarget, setTopupTarget] = useState<TopReseller | null>(null);
   const [topupAmount, setTopupAmount] = useState("10");
@@ -63,26 +54,6 @@ export function ResellersView() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const loadDetail = useCallback(
-    async (id: string) => {
-      setDetailLoading(true);
-      try {
-        const response = await apiGet<ResellerDetail>(`/api/resellers/${id}`);
-        setDetail(response);
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Gagal memuat detail reseller");
-        setDetail(null);
-      } finally {
-        setDetailLoading(false);
-      }
-    },
-    [toast],
-  );
-
-  useEffect(() => {
-    if (detailId) void loadDetail(detailId);
-  }, [detailId, loadDetail]);
 
   const createReseller = async () => {
     setCreateError(null);
@@ -130,7 +101,6 @@ export function ResellersView() {
       setTopupTarget(null);
       setTopupNote("");
       await load();
-      if (detailId) await loadDetail(detailId);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Gagal topup credit");
     } finally {
@@ -273,13 +243,13 @@ export function ResellersView() {
                 {resellers.map((reseller) => (
                   <tr key={reseller.id} className="row-hover h-11">
                     <td className="px-3 py-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setDetailId(reseller.id)}
+                      <Link
+                        href={`/resellers/${reseller.id}`}
                         className="transition-colors duration-150 hover:text-accent"
+                        title="Buka halaman detail reseller"
                       >
                         {reseller.username}
-                      </button>
+                      </Link>
                     </td>
                     <td className="px-3 py-1.5 text-muted">{reseller.email}</td>
                     <td className="px-3 py-1.5 tabular-nums">{formatNumber(reseller.credit)}</td>
@@ -299,13 +269,11 @@ export function ResellersView() {
                         >
                           Topup
                         </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => setDetailId(reseller.id)}
-                          icon={<KeyRound size={14} strokeWidth={1.5} />}
-                        >
-                          Detail
-                        </Button>
+                        <Link href={`/resellers/${reseller.id}`} className="inline-flex">
+                          <Button size="sm" icon={<KeyRound size={14} strokeWidth={1.5} />}>
+                            Detail
+                          </Button>
+                        </Link>
                         <Button
                           size="sm"
                           onClick={() => {
@@ -414,87 +382,6 @@ export function ResellersView() {
           </Field>
           {createError ? <p className="text-label text-banned">{createError}</p> : null}
         </div>
-      </Modal>
-
-      {/* Detail reseller */}
-      <Modal
-        open={detailId !== null}
-        onClose={() => {
-          setDetailId(null);
-          setDetail(null);
-        }}
-        title="Detail Reseller"
-        description={detail?.reseller.email}
-        footer={
-          <>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setDetailId(null);
-                setDetail(null);
-              }}
-            >
-              Tutup
-            </Button>
-            {detail ? (
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => setTopupTarget(detail.reseller)}
-                icon={<Wallet size={16} strokeWidth={1.5} />}
-              >
-                Topup Credit
-              </Button>
-            ) : null}
-          </>
-        }
-      >
-        {detailLoading || !detail ? (
-          <SkeletonRows rows={4} columns={3} />
-        ) : (
-          <div className="space-y-4">
-            <dl className="grid grid-cols-2 gap-3 text-body sm:grid-cols-3">
-              <Info label="Username" value={detail.reseller.username} />
-              <Info label="Sisa credit" value={formatNumber(detail.reseller.credit)} />
-              <Info label="Total key" value={formatNumber(detail.reseller.key_count)} />
-              <Info label="Status" value={detail.reseller.is_active ? "Aktif" : "Nonaktif"} />
-              <Info label="Dibuat" value={formatDateTime(detail.created_at)} />
-              <Info label="Email" value={detail.reseller.email} />
-            </dl>
-
-            <section className="rounded-card border border-border">
-              <header className="border-b border-border px-3 py-2">
-                <h3 className="text-body font-medium">Riwayat Credit</h3>
-              </header>
-              {detail.history.length === 0 ? (
-                <EmptyState message="Belum ada transaksi credit" />
-              ) : (
-                <ul className="divide-y divide-border">
-                  {detail.history.map((item) => (
-                    <li key={item.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                      <div className="min-w-0">
-                        <p className="text-body">
-                          {CREDIT_ACTION_LABEL[item.action] ?? item.action}
-                        </p>
-                        <p className="truncate text-label text-muted">{item.note ?? "-"}</p>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <p className="text-body tabular-nums">
-                          {item.amount > 0 ? "+" : ""}
-                          {formatNumber(item.amount)}
-                        </p>
-                        <p className="text-label text-muted tabular-nums">
-                          sisa {formatNumber(item.balance_after)} · {formatDateTime(item.created_at)}
-                        </p>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </div>
-        )}
       </Modal>
 
       {/* Topup */}

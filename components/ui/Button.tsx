@@ -34,7 +34,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 
   const variants: Record<Variant, string> = {
     primary:
-      "border-accent bg-accent text-[#20140f] hover:bg-accent/90 hover:border-accent/90 active:bg-accent/80",
+      "border-accent bg-accent text-accent-fg hover:bg-accent/90 hover:border-accent/90 active:bg-accent/80",
     ghost: "border-border bg-surface text-text hover:bg-surface-raised hover:border-muted/50",
     danger: "border-banned/60 bg-banned/10 text-banned hover:bg-banned/20",
   };

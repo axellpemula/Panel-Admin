@@ -1,8 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import { GeistMono } from "geist/font/mono";
 import { GeistSans } from "geist/font/sans";
+import { cookies } from "next/headers";
+import type { CSSProperties } from "react";
 
 import { ToastProvider } from "@/components/ui/Toast";
+import { DENSITY_CLASS, DENSITY_COOKIE, parseDensity } from "@/lib/density";
+import { parseTheme, THEME_COOKIE, themeColorHex, themeCssVariables } from "@/lib/theme";
 
 import "./globals.css";
 
@@ -17,15 +21,32 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export const viewport: Viewport = {
-  width: "device-width",
-  initialScale: 1,
-  themeColor: "#1c1b19",
-};
+/** Tema dibaca dari cookie `xloop_theme` (diatur di menu Pengaturan). */
+function currentTheme() {
+  return parseTheme(cookies().get(THEME_COOKIE.name)?.value);
+}
+
+/** `theme-color` mengikuti palet dasar yang dipilih (bar atas browser HP). */
+export function generateViewport(): Viewport {
+  return {
+    width: "device-width",
+    initialScale: 1,
+    themeColor: themeColorHex(currentTheme()),
+  };
+}
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  // CSS variable tema ditulis sebagai inline style di <html> supaya warna
+  // pilihan user sudah final di HTML pertama — tidak berkedip dari default.
+  const themeStyle = themeCssVariables(currentTheme()) as CSSProperties;
+  const compact = parseDensity(cookies().get(DENSITY_COOKIE.name)?.value) === "compact";
+
   return (
-    <html lang="id" className={`${geistSans.variable} ${geistMono.variable} dark`}>
+    <html
+      lang="id"
+      className={`${geistSans.variable} ${geistMono.variable} dark${compact ? ` ${DENSITY_CLASS}` : ""}`}
+      style={themeStyle}
+    >
       <body className="min-h-screen bg-bg font-sans text-body text-text antialiased">
         <ToastProvider>{children}</ToastProvider>
       </body>

@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import { checkLoginAttempt, clearLoginFailures, recordLoginFailure } from "@/lib/api/login-guard";
+import { recordLoginLog, type LoginFailureReason } from "@/lib/api/login-log";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import type { ProfileRow } from "@/lib/types/database";
@@ -23,6 +24,7 @@ interface LoginBody {
  */
 export async function POST(request: NextRequest) {
   const ip = clientIp(request);
+  const userAgent = request.headers.get("user-agent");
 
   const guard = checkLoginAttempt(ip);
   if (!guard.allowed) {
@@ -51,6 +53,22 @@ export async function POST(request: NextRequest) {
     return jsonError("Format email tidak valid", "validation_error", 400);
   }
 
+  const admin = createAdminClient();
+
+  /** Catat percobaan gagal ke login_logs (user_id dicari dari email bila ada). */
+  const logFailure = async (reason: LoginFailureReason, userId: string | null = null) => {
+    let resolvedUserId = userId;
+    if (!resolvedUserId) {
+      const { data: byEmail } = await admin
+        .from("profiles")
+        .select("id")
+        .eq("email", email)
+        .maybeSingle<{ id: string }>();
+      resolvedUserId = byEmail?.id ?? null;
+    }
+    await recordLoginLog(admin, { userId: resolvedUserId, email, success: false, reason, ip, userAgent });
+  };
+
   try {
     const supabase = createClient();
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -59,8 +77,10 @@ export async function POST(request: NextRequest) {
       recordLoginFailure(ip);
       const message = error?.message?.toLowerCase() ?? "";
       if (message.includes("email not confirmed")) {
+        await logFailure("email_not_confirmed");
         return jsonError("Email belum dikonfirmasi. Hubungi Owner.", "unauthorized", 401);
       }
+      await logFailure("invalid_credentials");
       if (message.includes("invalid login") || message.includes("invalid credentials")) {
         return jsonError("Email atau password salah", "unauthorized", 401);
       }
@@ -68,7 +88,6 @@ export async function POST(request: NextRequest) {
     }
 
     // Cek status akun lewat service role (RLS tidak menghalangi).
-    const admin = createAdminClient();
     const { data: profile, error: profileError } = await admin
       .from("profiles")
       .select("*")
@@ -77,21 +96,25 @@ export async function POST(request: NextRequest) {
 
     if (profileError) {
       await supabase.auth.signOut();
+      await logFailure("server_error", data.user.id);
       return jsonError("Gagal membaca profil akun", "server_error", 500);
     }
 
     if (!profile) {
       await supabase.auth.signOut();
+      await logFailure("no_profile", data.user.id);
       return jsonError("Profil akun tidak ditemukan. Hubungi Owner.", "forbidden", 403);
     }
 
     if (profile.is_active === false) {
       await supabase.auth.signOut();
+      await logFailure("inactive", profile.id);
       return jsonError("Akun kamu dinonaktifkan", "forbidden", 403);
     }
 
     // Login sukses → riwayat gagal IP ini direset.
     clearLoginFailures(ip);
+    await recordLoginLog(admin, { userId: profile.id, email: profile.email, success: true, ip, userAgent });
 
     return jsonOk({
       user: {

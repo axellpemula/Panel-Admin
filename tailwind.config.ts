@@ -21,6 +21,7 @@ const config: Config = {
         text: "rgb(var(--c-text) / <alpha-value>)",
         muted: "rgb(var(--c-muted) / <alpha-value>)",
         accent: "rgb(var(--c-accent) / <alpha-value>)",
+        "accent-fg": "rgb(var(--c-accent-fg) / <alpha-value>)",
         active: "rgb(var(--c-active) / <alpha-value>)",
         expired: "rgb(var(--c-expired) / <alpha-value>)",
         banned: "rgb(var(--c-banned) / <alpha-value>)",

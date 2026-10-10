@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   Plus,
   ScrollText,
+  Settings,
   ShieldAlert,
   Timer,
   Users,
@@ -35,3 +36,14 @@ export const NAV_ITEMS: NavItem[] = [
 export function navItemsFor(role: "owner" | "reseller"): NavItem[] {
   return NAV_ITEMS.filter((item) => item.roles.includes(role));
 }
+
+/**
+ * Menu Pengaturan — dipisah dari daftar utama karena posisinya di PALING BAWAH
+ * sidebar (di atas footer versi), bukan di urutan menu kerja.
+ */
+export const SETTINGS_NAV_ITEM: NavItem = {
+  href: "/settings",
+  label: "Pengaturan",
+  icon: Settings,
+  roles: ["owner", "reseller"],
+};

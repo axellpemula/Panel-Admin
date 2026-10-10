@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { CommandPalette } from "@/components/layout/CommandPalette";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar, type TopbarUser } from "@/components/layout/Topbar";
 import { cn } from "@/lib/utils/cn";
@@ -47,6 +48,21 @@ export function DashboardShell({
   const hideSidebar = () => setCollapsed(true);
   const showSidebar = () => setCollapsed(false);
 
+  // --- Command palette (Ctrl/⌘ + K) ---
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [logoutRequested, setLogoutRequested] = useState(false);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen((value) => !value);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
     <div className="min-h-screen bg-bg">
       <Sidebar role={role} collapsed={collapsed} onHide={hideSidebar} />
@@ -64,6 +80,16 @@ export function DashboardShell({
           sidebarCollapsed={collapsed}
           onShowSidebar={showSidebar}
           sidebarToggleRef={openToggleRef}
+          onOpenPalette={() => setPaletteOpen(true)}
+          logoutRequested={logoutRequested}
+          onLogoutRequestHandled={() => setLogoutRequested(false)}
+        />
+
+        <CommandPalette
+          open={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+          role={role}
+          onLogout={() => setLogoutRequested(true)}
         />
 
         <main className="flex-1 px-4 py-6 lg:px-6">

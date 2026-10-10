@@ -264,6 +264,27 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_key_value ON audit_logs (key_value);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_key_action_time
   ON audit_logs (key_id, action, created_at DESC);
 
+-- ---------------------------------------------------------------------------
+-- Login Logs (riwayat login per akun — tampil di menu Pengaturan)
+--
+-- Dicatat oleh /api/auth/login untuk percobaan SUKSES maupun GAGAL.
+-- user_id NULL kalau email tidak dikenal; email tetap disimpan supaya Owner bisa
+-- melihat percobaan ke akun yang tidak ada. Append-only, ditulis lewat service role.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS login_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  email TEXT,
+  success BOOLEAN NOT NULL,
+  reason TEXT,
+  ip TEXT,
+  user_agent TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_login_logs_user_time ON login_logs (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_login_logs_created_at ON login_logs (created_at DESC);
+
 -- ============================================================================
 -- 2. INDEX PERFORMA
 -- ============================================================================
@@ -674,6 +695,17 @@ ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Owner sees all audit logs" ON audit_logs;
 CREATE POLICY "Owner sees all audit logs" ON audit_logs FOR ALL USING (is_owner());
+
+-- --- Login Logs -------------------------------------------------------------
+-- User boleh membaca riwayat loginnya sendiri; Owner semua. Penulisan hanya
+-- lewat service role (tidak ada policy INSERT untuk authenticated).
+ALTER TABLE login_logs ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users see own login logs" ON login_logs;
+CREATE POLICY "Users see own login logs" ON login_logs FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Owner sees all login logs" ON login_logs;
+CREATE POLICY "Owner sees all login logs" ON login_logs FOR SELECT USING (is_owner());
 
 -- ============================================================================
 -- 6. GRANT

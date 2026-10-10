@@ -5,6 +5,8 @@
 /*
  * Token warna XLOOP PANEL (dark only, tidak ada light mode).
  * Komponen TIDAK boleh hardcode hex — selalu pakai token (bg-surface, text-muted, dst).
+ * Nilai di bawah adalah DEFAULT; user bisa menggantinya dari menu Pengaturan →
+ * root layout menimpa variabel ini lewat inline style di <html> (lihat lib/theme.ts).
  */
 :root {
   --c-bg: 28 27 25; /* #1c1b19 */
@@ -14,6 +16,7 @@
   --c-text: 236 233 228; /* #ece9e4 */
   --c-muted: 154 149 140; /* #9a958c */
   --c-accent: 255 124 76; /* #ff7c4c */
+  --c-accent-fg: 32 20 15; /* teks di atas aksen (#20140f) — dihitung ulang oleh lib/theme.ts */
   --c-active: 111 174 130; /* #6fae82 */
   --c-expired: 201 163 91; /* #c9a35b */
   --c-banned: 201 100 92; /* #c9645c */
@@ -121,4 +124,35 @@
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Kepadatan tabel "Kompak" — diatur dari menu Pengaturan               */
+/* (class `density-compact` di <html>, cookie xloop_density).           */
+/* Baris tabel 44px → 36px, padding sel dikurangi, font sedikit rapat.  */
+/* ------------------------------------------------------------------ */
+.density-compact table tbody tr {
+  height: 2.25rem;
+}
+.density-compact table thead th {
+  height: auto;
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+}
+.density-compact table tbody td {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+.density-compact table tbody td,
+.density-compact table thead th {
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+.density-compact table tbody td:first-child,
+.density-compact table thead th:first-child {
+  padding-left: 0.75rem;
+}
+.density-compact table tbody td:last-child,
+.density-compact table thead th:last-child {
+  padding-right: 0.75rem;
 }

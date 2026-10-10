@@ -77,6 +77,7 @@ export const TABLES = {
   toolSecrets: "tool_secrets",
   validationAttempts: "validation_attempts",
   auditLogs: "audit_logs",
+  loginLogs: "login_logs",
 } as const;
 
 /** Semua aksi yang dicatat di audit log. */
