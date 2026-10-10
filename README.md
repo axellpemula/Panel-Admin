@@ -46,6 +46,7 @@ generate key, reseller, credit, sampai endpoint validasi publik yang **anti-bypa
 | Credit Log | Semua transaksi credit, filter tanggal/aksi/reseller, export CSV |
 | Audit Log | Jejak aksi pada key: siapa yang ban/unban/hapus key/reset HWID (Owner, Reseller, atau sistem auto-ban), lengkap dengan alasan ban terstruktur & catatan. Filter tanggal/aksi/aktor/key, export CSV. **Unban auto-ban hanya bisa oleh Owner** |
 | Validation Attempts | Semua percobaan validasi key yang tercatat `/api/validate`: ringkasan sukses/gagal, **IP mencurigakan**, **key paling sering gagal** (breakdown alasan), **tren per jam** (grafik), daftar percobaan (filter tanggal/hasil/alasan/IP/key, pagination, export CSV). Data disimpan 7 hari. **Hanya Owner** |
+| Pengaturan | Menu paling bawah sidebar. **Info Akun** (username, email, role, ID akun), **Info Web** (versi panel, mode database, status signing key, TTL token, runtime, zona waktu, format key, batasan), dan **Tema Warna** (8 preset aksen atau hex custom + 4 palet dasar gelap) |
 
 **Role: Reseller**
 
@@ -55,6 +56,7 @@ generate key, reseller, credit, sampai endpoint validasi publik yang **anti-bypa
 | Key List | Hanya key miliknya, detail + reset HWID, edit — perpanjang **wajib** pakai preset Owner dan memotong credit (`harga preset × max device`; menambah max device ikut dikenakan) — ban dengan alasan terstruktur, hapus. **Unban auto-ban (HWID) tidak bisa** — hanya Owner yang bisa membukanya |
 | Generate Key | Preset durasi saja, biaya `harga preset × quantity × max device` dipotong otomatis, 1–50 key sekaligus |
 | Credit Log | Riwayat credit miliknya, export CSV |
+| Pengaturan | Info akun (termasuk **sisa credit**), info web ringkas, dan tema warna |
 
 **Endpoint publik**
 
@@ -123,6 +125,12 @@ Yang berlaku untuk Reseller:
   muncul di topbar untuk membukanya lagi. Pilihan disimpan di cookie `xloop_sidebar`, jadi tetap
   tersembunyi/terbuka setelah refresh maupun pindah halaman — dan karena dibaca di server, sidebar
   tidak berkedip saat halaman dimuat.
+- **Tema warna bisa diganti** dari menu Pengaturan: warna aksen (preset atau hex custom) dan palet
+  dasar (Hangat/Grafit/Midnight/Hitam pekat). Semua komponen memakai token CSS (`--c-accent`, `--c-bg`,
+  dst), jadi `lib/theme.ts` cukup menimpa variabel itu lewat inline style di `<html>`. Preferensi
+  disimpan di cookie `xloop_theme` (`<palet>.<hex>`, 1 tahun) dan dibaca di `app/layout.tsx` di
+  server — warna pilihan sudah final di HTML pertama, tanpa kedip. Warna teks di atas aksen
+  (`--c-accent-fg`) dihitung otomatis (YIQ) supaya tombol utama tetap terbaca untuk aksen gelap.
 - **Loading splash interaktif** saat login sukses sebelum masuk dashboard: latar grid bergerak,
   scan-line HUD, logo X 3D dengan napas/tilt, tiga lapis cincin orbit berputar (luar conic
   multi-segmen + titik cahaya, tengah dashed counter-rotate + titik aktif, dalam statis) dengan
@@ -244,7 +252,8 @@ root/
 │   │   ├── generate/              # Generate Key
 │   │   ├── resellers/             # Reseller Management (owner)
 │   │   ├── credits/               # Credit Log
-│   │   └── audit/                 # Audit Log (owner) — jejak ban/unban/hapus/reset HWID/auto-ban
+│   │   ├── audit/                 # Audit Log (owner) — jejak ban/unban/hapus/reset HWID/auto-ban
+│   │   └── settings/              # Pengaturan: info akun, info web, tema warna
 │   ├── api/
 │   │   ├── auth/                  # login, logout, session
 │   │   ├── keys/                  # list, generate, edit, ban/unban, devices (HWID)
@@ -268,6 +277,7 @@ root/
 │   ├── supabase/                  # server, admin (service role), middleware — pintu ke DB aktif
 │   ├── types/                     # tipe Database + tipe UI
 │   ├── env.ts                     # pemilih mode database (Supabase ⇄ SQLite)
+│   ├── theme.ts                   # preset aksen/palet, cookie xloop_theme, CSS variable tema
 │   └── utils/                     # crypto (Ed25519 + key generator), format, csv, http, validate, cookie, cn
 ├── docs/
 │   ├── CLIENT_INTEGRATION.md      # cara verifikasi di sisi tool

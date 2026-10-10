@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { navItemsFor } from "@/components/layout/nav";
+import { navItemsFor, SETTINGS_NAV_ITEM, type NavItem } from "@/components/layout/nav";
 import { SidebarToggle } from "@/components/layout/SidebarToggle";
 import { cn } from "@/lib/utils/cn";
 import { SIDEBAR_ID } from "@/lib/constants";
@@ -15,6 +15,9 @@ import { SIDEBAR_ID } from "@/lib/constants";
  *
  * Bisa disembunyikan sepenuhnya lewat tombol logo X 3D di header-nya
  * (`SidebarToggle`); saat tersembunyi, tombol X di topbar mengembalikannya.
+ *
+ * Susunan: header → menu kerja (scroll) → menu Pengaturan (selalu di paling
+ * bawah, dipisah garis) → footer versi.
  */
 export function Sidebar({
   role,
@@ -55,30 +58,20 @@ export function Sidebar({
 
       <nav aria-label="Navigasi utama" className="flex-1 overflow-y-auto py-2">
         <ul className="space-y-0.5 px-1.5 lg:px-2">
-          {items.map((item) => {
-            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-            const Icon = item.icon;
-            return (
-              <li key={item.href}>
-                <Link
-                  href={item.href}
-                  title={item.label}
-                  tabIndex={collapsed ? -1 : undefined}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    "flex min-h-[40px] items-center gap-3 rounded-control px-2.5 text-body transition-colors duration-150 ease-out",
-                    "justify-center lg:justify-start",
-                    active
-                      ? "bg-surface-raised text-accent"
-                      : "text-muted hover:bg-surface-raised hover:text-text",
-                  )}
-                >
-                  <Icon size={18} strokeWidth={1.5} className="shrink-0" />
-                  <span className="hidden truncate lg:inline">{item.label}</span>
-                </Link>
-              </li>
-            );
-          })}
+          {items.map((item) => (
+            <li key={item.href}>
+              <NavLink item={item} pathname={pathname} collapsed={collapsed} />
+            </li>
+          ))}
+        </ul>
+      </nav>
+
+      {/* Menu Pengaturan — selalu di paling bawah, terpisah dari menu kerja. */}
+      <nav aria-label="Pengaturan" className="border-t border-border py-2">
+        <ul className="px-1.5 lg:px-2">
+          <li>
+            <NavLink item={SETTINGS_NAV_ITEM} pathname={pathname} collapsed={collapsed} />
+          </li>
         </ul>
       </nav>
 
@@ -86,5 +79,35 @@ export function Sidebar({
         <p className="text-label text-muted">XLOOP PANEL v1.0</p>
       </div>
     </aside>
+  );
+}
+
+/** Satu tautan menu — tampilan sama untuk menu kerja maupun Pengaturan. */
+function NavLink({
+  item,
+  pathname,
+  collapsed,
+}: {
+  item: NavItem;
+  pathname: string;
+  collapsed: boolean;
+}) {
+  const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+  const Icon = item.icon;
+  return (
+    <Link
+      href={item.href}
+      title={item.label}
+      tabIndex={collapsed ? -1 : undefined}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex min-h-[40px] items-center gap-3 rounded-control px-2.5 text-body transition-colors duration-150 ease-out",
+        "justify-center lg:justify-start",
+        active ? "bg-surface-raised text-accent" : "text-muted hover:bg-surface-raised hover:text-text",
+      )}
+    >
+      <Icon size={18} strokeWidth={1.5} className="shrink-0" />
+      <span className="hidden truncate lg:inline">{item.label}</span>
+    </Link>
   );
 }

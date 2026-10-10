@@ -345,7 +345,7 @@ export function KeysView({ isOwner, currentUserId }: { isOwner: boolean; current
           </Button>
           <Link
             href="/generate"
-            className="inline-flex h-8 items-center rounded-control border border-accent bg-accent px-2.5 text-label font-medium text-[#20140f] transition-colors duration-150 hover:bg-accent/90"
+            className="inline-flex h-8 items-center rounded-control border border-accent bg-accent px-2.5 text-label font-medium text-accent-fg transition-colors duration-150 hover:bg-accent/90"
           >
             Buat Key
           </Link>
