@@ -18,7 +18,7 @@ export function Skeleton({ className, style }: { className?: string; style?: CSS
         backgroundSize: "200% 100%",
       }}
       className={cn(
-        "relative overflow-hidden rounded bg-surface-raised animate-skeleton-shimmer",
+        "relative overflow-hidden rounded-control bg-surface-raised animate-skeleton-shimmer",
         className,
       )}
     />

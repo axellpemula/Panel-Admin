@@ -14,12 +14,21 @@ import {
   ACCENT_PRESETS,
   BASE_PALETTES,
   DEFAULT_THEME,
+  RADIUS_OPTIONS,
+  THEME_COLOR_OPTIONS,
+  accentForeground,
   applyThemeToDocument,
+  basePaletteColors,
   isDefaultTheme,
   normalizeHex,
+  resolveSurfaceColors,
+  resolvedThemeColors,
   serializeTheme,
   THEME_COOKIE,
+  themeContrastIssues,
+  type ThemeColorKey,
   type ThemePreference,
+  type ThemeSurfaceColorOverrides,
 } from "@/lib/theme";
 import {
   applyDensityToDocument,
@@ -276,15 +285,14 @@ function DensityCard({ initialDensity }: { initialDensity: Density }) {
         <p className="text-label text-muted">
           Berlaku untuk semua tabel (Key List, Reseller, Credit, Log).
         </p>
-        <div role="radiogroup" aria-label="Kepadatan tabel" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div role="group" aria-label="Pilih kepadatan tabel" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {DENSITY_OPTIONS.map((option) => {
             const selected = option.id === density;
             return (
               <button
                 key={option.id}
                 type="button"
-                role="radio"
-                aria-checked={selected}
+                aria-pressed={selected}
                 onClick={() => pick(option.id, option.label)}
                 className={cn(
                   "flex items-start gap-3 rounded-card border p-3 text-left transition-colors duration-150 ease-out",
@@ -333,6 +341,8 @@ function ThemeCard({ initialTheme }: { initialTheme: ThemePreference }) {
   const [theme, setTheme] = useState<ThemePreference>(initialTheme);
   const [customHex, setCustomHex] = useState(initialTheme.accent);
   const [hexError, setHexError] = useState<string | null>(null);
+  const [surfaceDrafts, setSurfaceDrafts] = useState(() => resolvedThemeColors(initialTheme));
+  const [surfaceErrors, setSurfaceErrors] = useState<Partial<Record<ThemeColorKey, string>>>({});
 
   // Sinkronkan kolom hex saat aksen berubah lewat preset / color picker.
   useEffect(() => {
@@ -348,11 +358,44 @@ function ThemeCard({ initialTheme }: { initialTheme: ThemePreference }) {
     if (message) toast.success(message);
   };
 
-  const pickAccent = (hex: string, label?: string) =>
-    commit({ ...theme, accent: hex }, label ? `Warna aksen: ${label}` : "Warna aksen diperbarui");
+  const pickAccent = (hex: string, label?: string) => {
+    const normalized = normalizeHex(hex);
+    if (!normalized) return;
+    commit(
+      { ...theme, accent: normalized },
+      label ? `Warna aksen: ${label}` : "Warna aksen diperbarui",
+    );
+  };
 
-  const pickPalette = (id: string, label: string) =>
+  const pickPalette = (id: string, label: string) => {
+    const currentColors = resolvedThemeColors(theme);
+    const nextColors = resolveSurfaceColors(id, theme.surfaceColors);
+
+    // Ganti nilai yang tidak diedit; pertahankan draft yang belum diterapkan.
+    setSurfaceDrafts((previous) => {
+      const next = { ...previous };
+      THEME_COLOR_OPTIONS.forEach((option) => {
+        if (normalizeHex(previous[option.key]) === currentColors[option.key]) {
+          next[option.key] = nextColors[option.key];
+        }
+      });
+      return next;
+    });
+    setSurfaceErrors((previous) => {
+      const next = { ...previous };
+      THEME_COLOR_OPTIONS.forEach((option) => {
+        if (normalizeHex(surfaceDrafts[option.key]) === currentColors[option.key]) {
+          delete next[option.key];
+        }
+      });
+      return next;
+    });
+
     commit({ ...theme, base: id }, `Palet dasar: ${label}`);
+  };
+
+  const pickRadius = (radius: ThemePreference["radius"], label: string) =>
+    commit({ ...theme, radius }, `Bentuk sudut: ${label}`);
 
   const submitCustomHex = () => {
     const normalized = normalizeHex(customHex);
@@ -364,9 +407,64 @@ function ThemeCard({ initialTheme }: { initialTheme: ThemePreference }) {
     pickAccent(normalized);
   };
 
-  const reset = () => commit(DEFAULT_THEME, "Tema dikembalikan ke default");
+  const updateSurfaceDraft = (key: ThemeColorKey, value: string) => {
+    setSurfaceDrafts((previous) => ({ ...previous, [key]: value }));
+    setSurfaceErrors((previous) => {
+      const next = { ...previous };
+      delete next[key];
+      return next;
+    });
+  };
 
-  const activePresetId = ACCENT_PRESETS.find((preset) => preset.hex === theme.accent)?.id ?? null;
+  const applySurfaceColors = () => {
+    const errors: Partial<Record<ThemeColorKey, string>> = {};
+    const overrides: ThemeSurfaceColorOverrides = {};
+    const paletteColors = basePaletteColors(theme.base);
+    const normalizedDrafts = { ...paletteColors };
+
+    THEME_COLOR_OPTIONS.forEach((option) => {
+      const normalized = normalizeHex(surfaceDrafts[option.key]);
+      if (!normalized) {
+        errors[option.key] = "Format hex tidak valid — gunakan 6 digit, contoh #1c1b19.";
+      } else {
+        normalizedDrafts[option.key] = normalized;
+      }
+      if (normalized && normalized !== paletteColors[option.key]) {
+        overrides[option.key] = normalized;
+      }
+    });
+
+    setSurfaceErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    setSurfaceDrafts(normalizedDrafts);
+    commit({ ...theme, surfaceColors: overrides }, "Warna permukaan diperbarui");
+  };
+
+  const resetSurfaceColors = () => {
+    setSurfaceDrafts(basePaletteColors(theme.base));
+    setSurfaceErrors({});
+    commit({ ...theme, surfaceColors: {} }, "Warna permukaan mengikuti palet dasar");
+  };
+
+  const reset = () => {
+    setCustomHex(DEFAULT_THEME.accent);
+    setHexError(null);
+    setSurfaceDrafts(basePaletteColors(DEFAULT_THEME.base));
+    setSurfaceErrors({});
+    commit(DEFAULT_THEME, "Tema dikembalikan ke default");
+  };
+
+  const activePresetId = ACCENT_PRESETS.find(
+    (preset) => normalizeHex(preset.hex) === normalizeHex(theme.accent),
+  )?.id ?? null;
+  const appliedColors = resolvedThemeColors(theme);
+  const paletteColors = basePaletteColors(theme.base);
+  const hasSurfaceDraftChanges = THEME_COLOR_OPTIONS.some(
+    (option) => normalizeHex(surfaceDrafts[option.key]) !== appliedColors[option.key],
+  );
+  const customColorCount = Object.keys(theme.surfaceColors).length;
+  const contrastIssues = themeContrastIssues(theme);
 
   return (
     <section className="card overflow-hidden">
@@ -386,24 +484,62 @@ function ThemeCard({ initialTheme }: { initialTheme: ThemePreference }) {
       />
 
       <div className="space-y-6 px-4 py-4">
-        {/* Warna aksen */}
-        <div className="space-y-3">
+        {/* Palet dasar */}
+        <section aria-labelledby="theme-palette-title" className="space-y-3">
           <div>
-            <h3 className="text-body font-medium">Warna aksen</h3>
+            <h3 id="theme-palette-title" className="text-body font-medium">Palet dasar</h3>
             <p className="text-label text-muted">
-              Dipakai untuk tombol utama, menu aktif, logo, dan sorotan. Perubahan langsung terpasang.
+              Pilih nuansa gelap sebagai dasar. Warna khusus yang sudah diterapkan tetap menimpa warna palet terkait.
             </p>
           </div>
 
-          <div role="radiogroup" aria-label="Preset warna aksen" className="flex flex-wrap gap-2">
+          <div role="group" aria-label="Palet dasar" className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {BASE_PALETTES.map((palette) => {
+              const selected = palette.id === theme.base;
+              return (
+                <button
+                  key={palette.id}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => pickPalette(palette.id, palette.label)}
+                  className={cn(
+                    "flex min-h-[72px] items-start gap-3 rounded-card border p-3 text-left transition-colors duration-150 ease-out",
+                    selected
+                      ? "border-accent/60 bg-accent/10"
+                      : "border-border bg-surface hover:bg-surface-raised",
+                  )}
+                >
+                  <PalettePreview palette={palette} accent={theme.accent} />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5 text-body text-text">
+                      {palette.label}
+                      {selected ? <Check size={14} strokeWidth={2} className="text-accent" /> : null}
+                    </span>
+                    <span className="block text-label text-muted">{palette.description}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* Warna aksen */}
+        <section aria-labelledby="theme-accent-title" className="space-y-3 border-t border-border pt-5">
+          <div>
+            <h3 id="theme-accent-title" className="text-body font-medium">Warna aksen</h3>
+            <p className="text-label text-muted">
+              Dipakai untuk tombol utama, menu aktif, logo, dan sorotan. Preset dan color picker langsung diterapkan.
+            </p>
+          </div>
+
+          <div role="group" aria-label="Preset warna aksen" className="flex flex-wrap gap-2">
             {ACCENT_PRESETS.map((preset) => {
               const selected = preset.id === activePresetId;
               return (
                 <button
                   key={preset.id}
                   type="button"
-                  role="radio"
-                  aria-checked={selected}
+                  aria-pressed={selected}
                   title={`${preset.label} · ${preset.hex}`}
                   onClick={() => pickAccent(preset.hex, preset.label)}
                   className={cn(
@@ -418,7 +554,13 @@ function ThemeCard({ initialTheme }: { initialTheme: ThemePreference }) {
                     className="flex h-5 w-5 items-center justify-center rounded-full border border-black/30"
                     style={{ backgroundColor: preset.hex }}
                   >
-                    {selected ? <Check size={12} strokeWidth={2.5} className="text-black/70" /> : null}
+                    {selected ? (
+                      <Check
+                        size={12}
+                        strokeWidth={2.5}
+                        style={{ color: `rgb(${accentForeground(preset.hex)})` }}
+                      />
+                    ) : null}
                   </span>
                   {preset.label}
                 </button>
@@ -431,7 +573,7 @@ function ThemeCard({ initialTheme }: { initialTheme: ThemePreference }) {
               <div className="flex items-center gap-2">
                 <label
                   className="relative h-10 w-10 shrink-0 cursor-pointer overflow-hidden rounded-control border border-border"
-                  title="Pilih warna"
+                  title="Pilih warna aksen"
                   style={{ backgroundColor: normalizeHex(customHex) ?? theme.accent }}
                 >
                   <span className="sr-only">Pilih warna aksen</span>
@@ -468,69 +610,224 @@ function ThemeCard({ initialTheme }: { initialTheme: ThemePreference }) {
               Terapkan
             </Button>
           </div>
-        </div>
+        </section>
 
-        {/* Palet dasar */}
-        <div className="space-y-3">
-          <div>
-            <h3 className="text-body font-medium">Palet dasar</h3>
-            <p className="text-label text-muted">
-              Nuansa latar, kartu, dan garis. Semua tetap gelap — panel memang dirancang dark-only.
-            </p>
+        {/* Kustomisasi warna permukaan */}
+        <section aria-labelledby="theme-surface-title" className="space-y-3 border-t border-border pt-5">
+          <header className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h3 id="theme-surface-title" className="text-body font-medium">Kustomisasi lanjutan</h3>
+              <p className="mt-1 text-label text-muted">
+                Ubah latar, kartu, garis, atau warna teks. Isi HEX lalu pilih Terapkan warna.
+                Nilai ini disimpan di browser dan menimpa warna dari palet dasar.
+              </p>
+            </div>
+            {customColorCount > 0 ? <Badge tone="accent">{customColorCount} warna khusus</Badge> : null}
+          </header>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {THEME_COLOR_OPTIONS.map((option) => (
+              <ThemeColorField
+                key={option.key}
+                colorKey={option.key}
+                label={option.label}
+                description={option.description}
+                value={surfaceDrafts[option.key]}
+                fallback={paletteColors[option.key]}
+                error={surfaceErrors[option.key]}
+                onChange={(value) => updateSurfaceDraft(option.key, value)}
+              />
+            ))}
           </div>
 
-          <div role="radiogroup" aria-label="Palet dasar" className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            {BASE_PALETTES.map((palette) => {
-              const selected = palette.id === theme.base;
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={applySurfaceColors}
+              disabled={!hasSurfaceDraftChanges}
+            >
+              Terapkan warna
+            </Button>
+            <Button
+              size="sm"
+              onClick={resetSurfaceColors}
+              disabled={customColorCount === 0 && !hasSurfaceDraftChanges}
+            >
+              Ikuti warna palet
+            </Button>
+            <span className="text-label text-muted">
+              {customColorCount === 0 ? "Semua warna permukaan mengikuti palet." : "Warna khusus dapat direset kapan saja."}
+            </span>
+          </div>
+        </section>
+
+        {/* Bentuk sudut komponen */}
+        <section aria-labelledby="theme-radius-title" className="space-y-3 border-t border-border pt-5">
+          <div>
+            <h3 id="theme-radius-title" className="text-body font-medium">Bentuk sudut</h3>
+            <p className="text-label text-muted">
+              Mengubah sudut tombol, input, dropdown, modal, dan kartu tanpa mengubah ukuran atau jarak.
+            </p>
+          </div>
+          <div role="group" aria-label="Bentuk sudut komponen" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {RADIUS_OPTIONS.map((option) => {
+              const selected = option.id === theme.radius;
               return (
                 <button
-                  key={palette.id}
+                  key={option.id}
                   type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  onClick={() => pickPalette(palette.id, palette.label)}
+                  aria-pressed={selected}
+                  onClick={() => pickRadius(option.id, option.label)}
                   className={cn(
-                    "flex items-start gap-3 rounded-card border p-3 text-left transition-colors duration-150 ease-out",
+                    "flex min-h-[76px] items-center gap-3 rounded-card border p-3 text-left transition-colors duration-150 ease-out",
                     selected
                       ? "border-accent/60 bg-accent/10"
                       : "border-border bg-surface hover:bg-surface-raised",
                   )}
                 >
-                  <PalettePreview palette={palette} accent={theme.accent} />
+                  <span className="flex h-11 w-14 shrink-0 flex-col justify-center gap-1.5 rounded-control border border-border bg-bg p-1.5">
+                    <span
+                      className="h-3 w-full border border-accent/70 bg-accent/15"
+                      style={{ borderRadius: option.controlRadius }}
+                    />
+                    <span
+                      className="h-4 w-full border border-border bg-surface-raised"
+                      style={{ borderRadius: option.cardRadius }}
+                    />
+                  </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-1.5 text-body text-text">
-                      {palette.label}
+                      {option.label}
                       {selected ? <Check size={14} strokeWidth={2} className="text-accent" /> : null}
                     </span>
-                    <span className="block text-label text-muted">{palette.description}</span>
+                    <span className="block text-label text-muted">{option.description}</span>
                   </span>
                 </button>
               );
             })}
           </div>
-        </div>
+        </section>
 
         {/* Pratinjau */}
-        <div className="space-y-2">
-          <h3 className="text-body font-medium">Pratinjau</h3>
-          <div className="flex flex-wrap items-center gap-2 rounded-card border border-border bg-bg p-3">
-            <Button variant="primary" size="sm">
-              Tombol utama
-            </Button>
-            <Button size="sm">Tombol biasa</Button>
-            <Badge tone="accent">Owner</Badge>
-            <span className="rounded-control bg-surface-raised px-2.5 py-1.5 text-label text-accent">
-              Menu aktif
-            </span>
-            <span className="font-mono text-[13px] text-text">XLVP-AB12-CD34</span>
+        <section aria-labelledby="theme-preview-title" className="space-y-2 border-t border-border pt-5">
+          <h3 id="theme-preview-title" className="text-body font-medium">Pratinjau</h3>
+          <div className="grid gap-3 rounded-card border border-border bg-bg p-3 md:grid-cols-2">
+            <div className="rounded-card border border-border bg-surface p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-body font-medium text-text">Panel contoh</p>
+                  <p className="text-label text-muted">Teks sekunder dan permukaan kartu</p>
+                </div>
+                <Badge tone="accent">Owner</Badge>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-control border border-border bg-surface-raised p-2">
+                <Button variant="primary" size="sm">Tombol utama</Button>
+                <Button size="sm">Tombol biasa</Button>
+                <span className="font-mono text-[13px] text-text">XLVP-AB12-CD34</span>
+              </div>
+            </div>
+            <div className="rounded-card border border-border bg-surface p-3">
+              <p className="text-label text-muted">Contoh baris tabel</p>
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-control border border-border bg-surface-raised px-3 py-2">
+                <span className="font-mono text-label text-text">XLVP-AB12-CD34</span>
+                <span className="text-label text-active">● Active</span>
+              </div>
+              <p className="mt-2 text-label text-muted">Palet, warna permukaan, aksen, dan sudut akan terlihat di sini.</p>
+            </div>
           </div>
+          {contrastIssues.length > 0 ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="rounded-card border border-expired/40 bg-expired/10 px-3 py-2.5 text-label text-expired"
+            >
+              <p className="font-medium">
+                {contrastIssues.length} kombinasi warna perlu diperiksa (rasio minimum WCAG AA 4.5:1 untuk teks).
+              </p>
+              <ul className="mt-1 list-inside list-disc">
+                {contrastIssues.slice(0, 3).map((issue) => (
+                  <li key={issue.label}>
+                    {issue.label}: {issue.ratio.toFixed(1)}:1 (disarankan ≥ {issue.minimum.toFixed(1)}:1)
+                  </li>
+                ))}
+              </ul>
+              {contrastIssues.length > 3 ? (
+                <p className="mt-1">dan {contrastIssues.length - 3} kombinasi lainnya.</p>
+              ) : null}
+              <p className="mt-1">Gunakan kembali warna palet atau sesuaikan teks agar lebih mudah dibaca.</p>
+            </div>
+          ) : (
+            <p role="status" className="text-label text-active">
+              Kontras teks dan warna status memenuhi rasio minimum WCAG AA pada permukaan tema ini.
+            </p>
+          )}
           <p className="text-label text-muted">
-            Preferensi tema disimpan di cookie browser ini, jadi tiap perangkat bisa
-            punya warna sendiri.
+            Preferensi tema disimpan di cookie browser ini, jadi tiap perangkat bisa punya warna sendiri.
           </p>
-        </div>
+        </section>
       </div>
     </section>
+  );
+}
+
+function ThemeColorField({
+  colorKey,
+  label,
+  description,
+  value,
+  fallback,
+  error,
+  onChange,
+}: {
+  colorKey: ThemeColorKey;
+  label: string;
+  description: string;
+  value: string;
+  fallback: string;
+  error?: string;
+  onChange: (value: string) => void;
+}) {
+  const id = `theme-${colorKey}`;
+  const colorValue = normalizeHex(value) ?? fallback;
+
+  return (
+    <Field
+      label={label}
+      htmlFor={`${id}-hex`}
+      hint={error ? undefined : description}
+      error={error}
+    >
+      <div className="flex items-center gap-2">
+        <label
+          htmlFor={`${id}-picker`}
+          className="relative h-10 w-10 shrink-0 cursor-pointer overflow-hidden rounded-control border border-border"
+          title={`Pilih warna: ${label}`}
+          style={{ backgroundColor: colorValue }}
+        >
+          <span className="sr-only">Pilih warna {label.toLowerCase()}</span>
+          <input
+            id={`${id}-picker`}
+            type="color"
+            aria-label={`Pilih warna ${label.toLowerCase()}`}
+            value={colorValue}
+            onChange={(event) => onChange(event.target.value)}
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+          />
+        </label>
+        <Input
+          id={`${id}-hex`}
+          mono
+          value={value}
+          invalid={Boolean(error)}
+          maxLength={7}
+          spellCheck={false}
+          autoCapitalize="characters"
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={fallback}
+        />
+      </div>
+    </Field>
   );
 }
 

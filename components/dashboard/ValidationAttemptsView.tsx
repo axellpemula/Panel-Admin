@@ -237,7 +237,10 @@ export function ValidationAttemptsView() {
             onClick={() => void load()}
             loading={loading}
             icon={<RefreshCw size={16} strokeWidth={1.5} />}
+            aria-label="Muat ulang validation attempts"
+            title="Muat ulang validation attempts"
           >
+            Muat ulang
           </Button>
           <Button
             size="sm"

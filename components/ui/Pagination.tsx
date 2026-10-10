@@ -32,6 +32,8 @@ export function Pagination({
           size="sm"
           onClick={() => onChange(page - 1)}
           disabled={page <= 1}
+          aria-label="Halaman sebelumnya"
+          title="Halaman sebelumnya"
           icon={<ChevronLeft size={16} strokeWidth={1.5} />}
         >
         </Button>
@@ -42,6 +44,8 @@ export function Pagination({
           size="sm"
           onClick={() => onChange(page + 1)}
           disabled={page >= totalPages}
+          aria-label="Halaman berikutnya"
+          title="Halaman berikutnya"
         >
           <ChevronRight size={16} strokeWidth={1.5} />
         </Button>

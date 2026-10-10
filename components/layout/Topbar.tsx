@@ -125,7 +125,7 @@ export function Topbar({
         >
           <Search size={15} strokeWidth={1.5} />
           <span className="hidden md:inline">Cari…</span>
-          <kbd className="hidden rounded border border-border px-1 font-sans text-[10px] md:inline">Ctrl K</kbd>
+          <kbd className="hidden rounded-control border border-border px-1 font-sans text-[10px] md:inline">Ctrl K</kbd>
         </button>
 
         {user.role === "reseller" ? (

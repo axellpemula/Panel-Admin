@@ -46,7 +46,7 @@ generate key, reseller, credit, sampai endpoint validasi publik yang **anti-bypa
 | Credit Log | Semua transaksi credit, filter tanggal/aksi/reseller, export CSV |
 | Audit Log | Jejak aksi pada key: siapa yang ban/unban/hapus key/reset HWID (Owner, Reseller, atau sistem auto-ban), lengkap dengan alasan ban terstruktur & catatan. Filter tanggal/aksi/aktor/key, export CSV. **Unban auto-ban hanya bisa oleh Owner** |
 | Validation Attempts | Semua percobaan validasi key yang tercatat `/api/validate`: ringkasan sukses/gagal, **IP mencurigakan**, **key paling sering gagal** (breakdown alasan), **tren per jam** (grafik), daftar percobaan (filter tanggal/hasil/alasan/IP/key, pagination, export CSV). Data disimpan 7 hari. **Hanya Owner** |
-| Pengaturan | Menu paling bawah sidebar. **Info Akun** (username, email, role, ID akun), **Info Web** (versi panel, mode database, status signing key, TTL token, runtime, zona waktu, format key, batasan), **Riwayat Login** (20 percobaan terakhir: waktu, perangkat, IP, sukses/gagal), **Kepadatan Tabel** (Nyaman/Kompak), dan **Tema Warna** (8 preset aksen atau hex custom + 4 palet dasar gelap) |
+| Pengaturan | Menu paling bawah sidebar. **Info Akun** (username, email, role, ID akun), **Info Web** (versi panel, mode database, status signing key, TTL token, runtime, zona waktu, format key, batasan), **Riwayat Login** (20 percobaan terakhir: waktu, perangkat, IP, sukses/gagal), **Kepadatan Tabel** (Nyaman/Kompak), dan **Tema Warna** (8 preset aksen/custom hex, 7 palet gelap, 6 warna permukaan custom, dan 3 bentuk sudut) |
 
 **Role: Reseller**
 
@@ -125,12 +125,16 @@ Yang berlaku untuk Reseller:
   muncul di topbar untuk membukanya lagi. Pilihan disimpan di cookie `xloop_sidebar`, jadi tetap
   tersembunyi/terbuka setelah refresh maupun pindah halaman — dan karena dibaca di server, sidebar
   tidak berkedip saat halaman dimuat.
-- **Tema warna bisa diganti** dari menu Pengaturan: warna aksen (preset atau hex custom) dan palet
-  dasar (Hangat/Grafit/Midnight/Hitam pekat). Semua komponen memakai token CSS (`--c-accent`, `--c-bg`,
-  dst), jadi `lib/theme.ts` cukup menimpa variabel itu lewat inline style di `<html>`. Preferensi
-  disimpan di cookie `xloop_theme` (`<palet>.<hex>`, 1 tahun) dan dibaca di `app/layout.tsx` di
-  server — warna pilihan sudah final di HTML pertama, tanpa kedip. Warna teks di atas aksen
-  (`--c-accent-fg`) dihitung otomatis (YIQ) supaya tombol utama tetap terbaca untuk aksen gelap.
+- **Tema warna bisa diatur** dari menu Pengaturan: 8 preset/hex custom untuk aksen, 7 palet dasar
+  gelap (Hangat, Grafit, Midnight, Hitam pekat, Ocean, Forest, Plum), 6 warna permukaan custom
+  (latar, kartu, permukaan terangkat, border, teks utama, teks sekunder), serta bentuk sudut Tajam /
+  Standar / Membulat. Palet/aksen/radius diterapkan langsung; override permukaan diterapkan setelah
+  menekan **Terapkan warna**. Pratinjau mengikuti hasil akhir; pemeriksaan kontras memperingatkan pasangan
+  teks/latar di bawah rasio WCAG AA 4.5:1. Warna UI memakai token CSS, sedangkan kontrol
+  dan kartu memakai token radius (`--r-control`, `--r-card`); `lib/theme.ts` menerapkannya lewat
+  inline style di `<html>`. Preferensi disimpan di cookie `xloop_theme` selama 1 tahun dan dibaca di server,
+  sehingga tema sudah benar pada HTML pertama tanpa kedip. Parser tetap menerima cookie format lama
+  (`<palet>.<hex>`); teks tombol utama memilih hitam atau putih dengan rasio kontras terbaik.
 - **Topbar** menampilkan judul halaman aktif (dengan breadcrumb di halaman turunan), tombol **Cari…
   (Ctrl/⌘ K)**, dan chip sisa credit untuk Reseller.
 - **Command palette** (Ctrl/⌘ K di mana saja): lompat ke menu sesuai role, aksi cepat (Generate key,

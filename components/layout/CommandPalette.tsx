@@ -50,12 +50,14 @@ export function CommandPalette({
   const [searching, setSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const lastFocused = useRef<HTMLElement | null>(null);
 
   useEffect(() => setMounted(true), []);
 
   // Reset saat dibuka; fokus ke input.
   useEffect(() => {
     if (!open) return;
+    lastFocused.current = (document.activeElement as HTMLElement | null) ?? null;
     setQuery("");
     setActive(0);
     setKeyResults([]);
@@ -65,6 +67,9 @@ export function CommandPalette({
     return () => {
       window.clearTimeout(timer);
       document.body.style.overflow = previousOverflow;
+      const trigger = lastFocused.current;
+      if (trigger && document.contains(trigger)) trigger.focus?.();
+      lastFocused.current = null;
     };
   }, [open]);
 
@@ -210,6 +215,11 @@ export function CommandPalette({
     } else if (event.key === "Escape") {
       event.preventDefault();
       onClose();
+    } else if (event.key === "Tab") {
+      // Palette memakai Arrow/Enter untuk menjalankan item; jaga fokus tetap
+      // di input agar keyboard tidak keluar ke halaman di balik overlay.
+      event.preventDefault();
+      inputRef.current?.focus();
     }
   };
 
@@ -239,7 +249,13 @@ export function CommandPalette({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Ketik menu, aksi, atau key (XLVP-…)"
+            role="combobox"
             aria-label="Cari menu, aksi, atau key"
+            aria-autocomplete="list"
+            aria-haspopup="listbox"
+            aria-expanded={items.length > 0}
+            aria-controls={items.length > 0 ? "command-palette-results" : undefined}
+            aria-activedescendant={items[active] ? `command-palette-option-${active}` : undefined}
             autoComplete="off"
             spellCheck={false}
             className="h-12 w-full bg-transparent text-body text-text outline-none placeholder:text-muted"
@@ -249,53 +265,59 @@ export function CommandPalette({
           </kbd>
         </div>
 
-        <div ref={listRef} className="max-h-[60vh] overflow-y-auto py-1" role="listbox">
+        <div ref={listRef} className="max-h-[60vh] overflow-y-auto py-1">
           {items.length === 0 ? (
-            <p className="px-4 py-8 text-center text-body text-muted">
+            <p role="status" aria-live="polite" className="px-4 py-8 text-center text-body text-muted">
               {searching ? "Mencari key…" : "Tidak ada yang cocok."}
             </p>
           ) : (
-            items.map((item, index) => {
-              const showHeader = item.group !== lastGroup;
-              lastGroup = item.group;
-              const selected = index === active;
-              return (
-                <div key={item.id}>
-                  {showHeader ? (
-                    <p className="px-4 pb-1 pt-2 text-[11px] uppercase tracking-wide text-muted">
-                      {item.group}
-                      {item.group === "Key" && searching ? " · mencari…" : ""}
-                    </p>
-                  ) : null}
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={selected}
-                    data-index={index}
-                    onMouseEnter={() => setActive(index)}
-                    onClick={item.run}
-                    className={cn(
-                      "flex w-full items-center gap-3 px-4 py-2 text-left text-body transition-colors duration-100",
-                      selected ? "bg-surface-raised text-text" : "text-muted hover:text-text",
-                    )}
-                  >
-                    <span className={cn("shrink-0", selected ? "text-accent" : "text-muted")}>{item.icon}</span>
-                    <span className="min-w-0 flex-1">
-                      <span className={cn("block truncate", item.group === "Key" && "font-mono text-[13px]")}>
-                        {item.label}
+            <div id="command-palette-results" role="listbox" aria-label="Hasil pencarian">
+              {items.map((item, index) => {
+                const showHeader = item.group !== lastGroup;
+                lastGroup = item.group;
+                const selected = index === active;
+                return (
+                  <div key={item.id} role="presentation">
+                    {showHeader ? (
+                      <p
+                        aria-hidden="true"
+                        className="px-4 pb-1 pt-2 text-[11px] uppercase tracking-wide text-muted"
+                      >
+                        {item.group}
+                        {item.group === "Key" && searching ? " · mencari…" : ""}
+                      </p>
+                    ) : null}
+                    <button
+                      type="button"
+                      id={`command-palette-option-${index}`}
+                      role="option"
+                      aria-selected={selected}
+                      data-index={index}
+                      onMouseEnter={() => setActive(index)}
+                      onClick={item.run}
+                      className={cn(
+                        "flex w-full items-center gap-3 px-4 py-2 text-left text-body transition-colors duration-100",
+                        selected ? "bg-surface-raised text-text" : "text-muted hover:text-text",
+                      )}
+                    >
+                      <span className={cn("shrink-0", selected ? "text-accent" : "text-muted")}>{item.icon}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className={cn("block truncate", item.group === "Key" && "font-mono text-[13px]")}>
+                          {item.label}
+                        </span>
+                        {item.hint ? <span className="block truncate text-label text-muted">{item.hint}</span> : null}
                       </span>
-                      {item.hint ? <span className="block truncate text-label text-muted">{item.hint}</span> : null}
-                    </span>
-                    {item.trailing}
-                    {selected ? (
-                      <CornerDownLeft size={14} strokeWidth={1.5} className="shrink-0 text-muted" aria-hidden="true" />
-                    ) : (
-                      <ArrowRight size={14} strokeWidth={1.5} className="shrink-0 opacity-0" aria-hidden="true" />
-                    )}
-                  </button>
-                </div>
-              );
-            })
+                      {item.trailing}
+                      {selected ? (
+                        <CornerDownLeft size={14} strokeWidth={1.5} className="shrink-0 text-muted" aria-hidden="true" />
+                      ) : (
+                        <ArrowRight size={14} strokeWidth={1.5} className="shrink-0 opacity-0" aria-hidden="true" />
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
 

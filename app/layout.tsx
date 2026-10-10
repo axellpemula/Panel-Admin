@@ -26,7 +26,7 @@ function currentTheme() {
   return parseTheme(cookies().get(THEME_COOKIE.name)?.value);
 }
 
-/** `theme-color` mengikuti palet dasar yang dipilih (bar atas browser HP). */
+/** `theme-color` mengikuti latar efektif tema (bar atas browser HP). */
 export function generateViewport(): Viewport {
   return {
     width: "device-width",

@@ -20,8 +20,8 @@ export interface ModalProps {
 }
 
 /**
- * Modal dasar: fokus otomatis ke field pertama, tutup dengan Esc,
- * tombol aksi di kanan bawah, shadow tipis satu lapis.
+ * Modal dasar: fokus otomatis ke field pertama, fokus Tab terperangkap di
+ * dalam dialog, tutup dengan Esc, tombol aksi di kanan bawah, shadow tipis satu lapis.
  *
  * PENTING (perbaikan bug fokus):
  * Effect yang mengunci scroll body + memasang listener Esc HARUS tidak
@@ -79,9 +79,39 @@ export function Modal({
     document.body.style.overflow = "hidden";
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.stopPropagation();
-      requestClose();
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        requestClose();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+      const container = containerRef.current;
+      if (!container) return;
+
+      const focusable = Array.from(
+        container.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.getClientRects().length > 0);
+
+      if (focusable.length === 0) {
+        event.preventDefault();
+        container.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+
+      if (event.shiftKey && (active === first || !container.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !container.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
     };
 
     document.addEventListener("keydown", handleKeyDown);
@@ -143,6 +173,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        tabIndex={-1}
         className={cn(
           "relative z-10 w-full rounded-t-card border border-border bg-surface-raised shadow-pop",
           "animate-pop-in sm:rounded-card",

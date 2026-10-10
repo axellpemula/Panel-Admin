@@ -6,7 +6,8 @@ butuh Supabase asli untuk diverifikasi. Semua perintah di bawah bisa kamu ulangi
 Tanggal verifikasi: 2026-10-04 · Diperbarui: 2026-10-07 (logo X 3D, regresi fokus, toggle sidebar, mode SQLite)
 · Diperbarui: 2026-10-08 (audit log + alasan ban terstruktur + unban auto-ban khusus Owner)
 · Diperbarui: 2026-10-08 (audit menyeluruh seluruh codebase — 14 bug/potensi diperbaiki, lihat §9.8)
-Node.js v20.20.2 · Next.js 14.2.15
+· Diperbarui: 2026-10-10 (palet tambahan, warna permukaan, radius, audit UI/UX, lihat §9.9)
+Node.js v22.22.3 (verifikasi 2026-10-10; sebelumnya v20.20.2) · Next.js 14.2.15
 
 ---
 
@@ -585,6 +586,43 @@ date-only → `…T16:59:59.999Z`; `from=2026-02-30` → 400; 12 login gagal ber
 di semua endpoint; SSR `RecentActivity` menampilkan label Perpanjang/Pengembalian tanpa "Generate key";
 unit test `csvEscape`/`asIsoDate`/`asDateOnlyToIso`/`login-guard` 31/31 (1 ekspektasi test awal yang
 keliru, perilaku fungsi sudah benar).
+
+### 9.9 Tema & audit UI/UX (2026-10-10)
+
+Pengaturan tema kini menyediakan 7 palet dasar, 8 aksen preset + hex custom, 6 override warna permukaan,
+dan 3 bentuk sudut. Cookie `xloop_theme` versi `v2` menyimpan semua pilihan; parser format lama
+`<palet>.<hex>` tetap didukung. Token warna/radius diterapkan pada HTML awal dari server dan saat pratinjau
+client. Warna foreground tombol utama memilih hitam/putih dengan rasio terbaik, dan peringatan kontras
+memeriksa teks utama/sekunder, status, serta teks aksen terhadap permukaan efektif.
+
+Audit UI/UX mencakup:
+
+- Tombol pilihan palet, aksen, radius, dan kepadatan tabel memakai `aria-pressed` dalam grup bernama.
+- Tombol muat ulang kini memiliki teks dan label aksesibel; tombol prev/next pagination memiliki nama
+  yang jelas untuk screen reader dan tooltip.
+- Modal membatasi Tab/Shift+Tab, tetap menangani Escape, dan mengembalikan fokus ke pemicu; command
+  palette mempertahankan fokus saat Tab, mengembalikannya ketika ditutup, dan mengumumkan hasil melalui
+  combobox/listbox dengan `aria-activedescendant`.
+- Radius kontrol/kartu ikut diterapkan pada state fokus, skeleton, tombol tutup toast, dan tooltip grafik;
+  perubahan ukuran dan jarak komponen tidak dilakukan.
+- Draft warna permukaan dipertahankan saat palet diganti; reset warna permukaan maupun reset semua tema
+  menyinkronkan kembali input, sehingga nilai draft lama tidak dapat terpasang tanpa sengaja.
+
+Pemeriksaan yang dijalankan:
+
+| Pemeriksaan | Hasil |
+|---|---|
+| `npm run typecheck` | lulus |
+| `npm run lint` | lulus, tanpa warning |
+| `npm run build` | lulus |
+| `npm run verify:sqlite` | 90/90 |
+| `npm run verify:validate` | 28/28 |
+| Helper tema (runner Node sementara) | 7 × 8 kombinasi palet/aksen tanpa isu; kontras custom rendah terdeteksi; rasio WCAG, cookie legacy/v2, round-trip, token CSS, meta-color, dan parsing aman lulus |
+| Preview HTTP (`/settings`) | SSR dengan cookie v2 custom menampilkan palet/warna/radius dan `theme-color` yang benar |
+| `git diff --check` | lulus |
+
+Tes visual/keyboard lintas browser tidak dijalankan: workspace tidak menyediakan browser lokal atau
+Playwright. Focus trap, layout responsif, dan native color picker perlu konfirmasi manual di browser.
 
 ---
 
