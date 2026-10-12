@@ -4,7 +4,12 @@ import { Check, Globe, Palette, Rows3, RotateCcw, UserRound } from "lucide-react
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 
+import { ApiKeysCard } from "@/components/dashboard/ApiKeysCard";
 import { LoginHistoryCard } from "@/components/dashboard/LoginHistoryCard";
+import { PasswordCard } from "@/components/dashboard/PasswordCard";
+import { SessionsCard } from "@/components/dashboard/SessionsCard";
+import { SystemSettingsCard } from "@/components/dashboard/SystemSettingsCard";
+import { TelegramCard } from "@/components/dashboard/TelegramCard";
 import { ActiveBadge, Badge, RoleBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { CopyButton } from "@/components/ui/CopyButton";
@@ -83,11 +88,14 @@ export function SettingsView({
   appInfo,
   initialTheme,
   initialDensity,
+  resellers,
 }: {
   account: AccountInfo;
   appInfo: AppInfo;
   initialTheme: ThemePreference;
   initialDensity: Density;
+  /** Daftar reseller untuk pilihan "buat API key untuk akun lain" (Owner). */
+  resellers: { id: string; username: string }[];
 }) {
   return (
     <div className="space-y-6">
@@ -103,7 +111,21 @@ export function SettingsView({
         <WebInfoCard appInfo={appInfo} isOwner={account.role === "owner"} />
       </div>
 
-      <LoginHistoryCard description="20 percobaan login terakhir ke akun ini — waktu, perangkat, dan alamat IP. Kalau ada yang tidak kamu kenali, segera ganti password." />
+      <h2 className="text-subtitle font-medium">Keamanan Akun</h2>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <PasswordCard />
+        <SessionsCard />
+      </div>
+
+      <h2 className="text-subtitle font-medium">Integrasi</h2>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <TelegramCard isOwner={account.role === "owner"} />
+        <ApiKeysCard isOwner={account.role === "owner"} resellers={resellers} />
+      </div>
+
+      <LoginHistoryCard description="20 percobaan login terakhir ke akun ini — waktu, perangkat, dan alamat IP. Kalau ada yang tidak kamu kenali, putus sesinya di kartu Sesi Aktif lalu ganti password." />
+
+      {account.role === "owner" ? <SystemSettingsCard /> : null}
 
       <DensityCard initialDensity={initialDensity} />
 
@@ -172,9 +194,9 @@ function AccountCard({ account }: { account: AccountInfo }) {
       </dl>
 
       <p className="border-t border-border px-4 py-3 text-label text-muted">
-        {isReseller
-          ? "Ingin ganti password atau data akun? Hubungi Owner."
-          : "Password Owner diganti lewat dashboard database."}
+        Ganti password sendiri di kartu <span className="text-text">Ganti Password</span> — data
+        akun lain (username/email){" "}
+        {isReseller ? "masih perlu bantuan Owner." : "bisa diubah dari menu Resellers."}
       </p>
     </section>
   );

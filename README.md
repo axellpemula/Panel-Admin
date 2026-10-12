@@ -46,7 +46,13 @@ generate key, reseller, credit, sampai endpoint validasi publik yang **anti-bypa
 | Credit Log | Semua transaksi credit, filter tanggal/aksi/reseller, export CSV |
 | Audit Log | Jejak aksi pada key: siapa yang ban/unban/hapus key/reset HWID (Owner, Reseller, atau sistem auto-ban), lengkap dengan alasan ban terstruktur & catatan. Filter tanggal/aksi/aktor/key, export CSV. **Unban auto-ban hanya bisa oleh Owner** |
 | Validation Attempts | Semua percobaan validasi key yang tercatat `/api/validate`: ringkasan sukses/gagal, **IP mencurigakan**, **key paling sering gagal** (breakdown alasan), **tren per jam** (grafik), daftar percobaan (filter tanggal/hasil/alasan/IP/key, pagination, export CSV). Data disimpan 7 hari. **Hanya Owner** |
-| Pengaturan | Menu paling bawah sidebar. **Info Akun** (username, email, role, ID akun), **Info Web** (versi panel, mode database, status signing key, TTL token, runtime, zona waktu, format key, batasan), **Riwayat Login** (20 percobaan terakhir: waktu, perangkat, IP, sukses/gagal), **Kepadatan Tabel** (Nyaman/Kompak), dan **Tema Warna** (8 preset aksen/custom hex, 7 palet gelap, 6 warna permukaan custom, dan 3 bentuk sudut) |
+| Pengaturan | Menu paling bawah sidebar. **Info Akun**, **Info Web** (versi panel, mode database, status signing key, TTL token, runtime, zona waktu, format key, batasan), **Keamanan Akun** (ganti password sendiri + daftar **sesi aktif** dengan perangkat/IP dan tombol “putus semua sesi lain”), **Riwayat Login** (20 percobaan terakhir), **Kepadatan Tabel**, **Tema Warna**, serta **Integrasi**: **Telegram** (hubungkan bot Owner, pasang webhook, uji kirim, tautkan chat) dan **API Key** (token `xlp_…` untuk `/api/v1`, tampil sekali + tombol cabut) |
+| Batas & Sistem | Kartu di Pengaturan (Owner): semua ambang runtime — rate limit `/api/validate` per IP/key, brute-force & auto-ban, TTL token lisensi, kuota reset HWID, batas max device & quantity, masa retensi log, ambang analitik anti-abuse, saklar + rate limit API publik, dan notifikasi (nyala/mati, jenis event, ambang saldo tipis, anti-spam). Nilai di luar rentang dijepit otomatis |
+| Penyesuaian credit | Di halaman detail reseller: tambah **atau** kurangi saldo dengan **alasan wajib** (tercatat sebagai `adjustment` di credit log + activity log), berguna untuk kompensasi/koreksi salah topup |
+| Activity Log | Tab **“Aktivitas Akun & Sistem”** di halaman Audit: ganti password, putus sesi, API key dibuat/dicabut, pengaturan diubah, Telegram dihubungkan/ditautkan/dilepas — pelengkap audit log aksi-key |
+| API publik `/api/v1` | API key reseller (hash SHA-256, prefix, `last_used_at`, hitungan request, cabut kapan saja) untuk generate key, cek saldo, lihat/kelola key, dan reset HWID dari bot/skrip. Dokumentasi: [`docs/RESELLER_API.md`](docs/RESELLER_API.md) |
+| Notifikasi Telegram | Owner dihubungi otomatis saat: key **auto-ban**, login reseller gagal berulang, brute-force validasi per IP, saldo reseller melewati ambang tipis, plus **ringkasan harian** (cron `/api/cron/digest`). Bisa juga diteruskan ke webhook HTTP sendiri (`XLOOP_NOTIFY_WEBHOOK_URL`) |
+| Bot Telegram | Reseller (dan Owner) menautkan chat dari Pengaturan, lalu bisa `/saldo`, `/preset`, `/keys`, `/key`, `/generate`, `/reset` HWID, dan `/unlink` langsung dari Telegram |
 
 **Role: Reseller**
 
@@ -56,15 +62,21 @@ generate key, reseller, credit, sampai endpoint validasi publik yang **anti-bypa
 | Key List | Hanya key miliknya, detail + reset HWID, edit — perpanjang **wajib** pakai preset Owner dan memotong credit (`harga preset × max device`; menambah max device ikut dikenakan) — ban dengan alasan terstruktur, hapus. **Unban auto-ban (HWID) tidak bisa** — hanya Owner yang bisa membukanya |
 | Generate Key | Preset durasi saja, biaya `harga preset × quantity × max device` dipotong otomatis, 1–50 key sekaligus |
 | Credit Log | Riwayat credit miliknya, export CSV |
-| Pengaturan | Info akun (termasuk **sisa credit**), riwayat login, info web ringkas, kepadatan tabel, dan tema warna |
+| Pengaturan | Info akun (termasuk **sisa credit**), **ganti password sendiri** + daftar sesi aktif, riwayat login, info web ringkas, kepadatan tabel, tema warna, dan **Integrasi**: tautkan Telegram + kelola **API key** (`/api/v1`) miliknya |
 
 **Endpoint publik**
 
 - `POST /api/validate` — validasi key dari sisi tool/mod, response sukses **ditandatangani Ed25519**
   + membawa `secret_payload` milik tool. Dokumentasi lengkap: [`docs/CLIENT_INTEGRATION.md`](docs/CLIENT_INTEGRATION.md).
-- `GET /api/cron/cleanup` — dipanggil Vercel Cron: hapus `validation_attempts` > 7 hari +
-  jalankan `update_expired_keys()` + (mode SQLite) bersihkan `auth_sessions` yang sudah
-  kedaluwarsa.
+- `GET /api/cron/cleanup` — dipanggil Vercel Cron: hapus `validation_attempts`,
+  `api_request_logs`, `notification_logs`, dan kode tautan Telegram sesuai masa retensi di
+  Pengaturan + jalankan `update_expired_keys()` + (mode SQLite) bersihkan `auth_sessions`
+  yang sudah kedaluwarsa.
+- `GET /api/cron/digest` — ringkasan harian (24 jam terakhir) ke Telegram/webhook Owner.
+- `POST /api/telegram/webhook` — penerima update bot Telegram (wajib header
+  `X-Telegram-Bot-Api-Secret-Token`).
+- `GET/POST /api/v1/...` — API publik reseller memakai API key `xlp_…`
+  ([`docs/RESELLER_API.md`](docs/RESELLER_API.md)).
 
 **Dua mode database**
 
@@ -269,17 +281,24 @@ root/
 │   │   ├── resellers/             # Reseller Management (owner) + [id]/ halaman detail reseller
 │   │   ├── credits/               # Credit Log
 │   │   ├── audit/                 # Audit Log (owner) — jejak ban/unban/hapus/reset HWID/auto-ban
-│   │   └── settings/              # Pengaturan: info akun, riwayat login, info web, kepadatan, tema
+│   │   ├── validation-attempts/   # analitik anti-abuse (owner)
+│   │   └── settings/              # Pengaturan: akun, keamanan, tema, Telegram, API key, batas sistem
 │   ├── api/
-│   │   ├── auth/                  # login, logout, session, logins (riwayat login)
+│   │   ├── auth/                  # login, logout, session, logins, password, sessions, logins
 │   │   ├── keys/                  # list, generate, edit, ban/unban, devices (HWID)
 │   │   ├── tools/                 # tool type, version, secret payload
 │   │   ├── durations/             # preset durasi
-│   │   ├── resellers/             # reseller management (owner)
+│   │   ├── resellers/             # reseller management (owner) + topup/set_active/reset_password/adjust_credit
 │   │   ├── credits/               # credit log + export CSV
 │   │   ├── audit/                 # audit log aksi key (owner) + export CSV
+│   │   ├── activity/              # activity log akun & sistem (owner) + export CSV
+│   │   ├── validation-attempts/   # data + analitik percobaan validasi (owner)
+│   │   ├── settings/              # konfigurasi runtime + Telegram (owner)
+│   │   ├── telegram/              # link (akun ⇄ chat) + webhook bot
+│   │   ├── api-keys/              # API key reseller (buat, daftar, cabut)
+│   │   ├── v1/                    # API publik reseller (Bearer xlp_…) — lihat docs/RESELLER_API.md
 │   │   ├── validate/              # endpoint publik validasi (Ed25519)
-│   │   └── cron/cleanup/          # cron harian (Bearer CRON_SECRET)
+│   │   └── cron/                  # cleanup & digest (Bearer CRON_SECRET)
 │   ├── globals.css                # token warna + base style
 │   ├── icon.svg                   # favicon (logo X 3D)
 │   └── layout.tsx                 # root layout (font Geist, ToastProvider)
@@ -288,16 +307,20 @@ root/
 │   ├── ui/                        # Button, Modal, ConfirmDialog, Select (custom), Badge, Toast, Skeleton, Form, CopyButton, EmptyState, Pagination, XloopMark (logo)
 │   └── layout/                    # DashboardShell, Sidebar (+toggle X 3D), Topbar, CommandPalette, nav.ts
 ├── lib/
-│   ├── api/                       # helper server: auth ctx, keys, stats, generate
+│   ├── api/                       # helper server: auth ctx, keys, stats, generate (GenerateContext),
+│   │                              # settings runtime, activity, notify (Telegram/webhook), api-keys, v1, telegram-bot
 │   ├── db/sqlite/                 # mode SQLite: skema, seed, adapter supabase-like, auth, RPC
 │   ├── supabase/                  # server, admin (service role), middleware — pintu ke DB aktif
 │   ├── types/                     # tipe Database + tipe UI
 │   ├── env.ts                     # pemilih mode database (Supabase ⇄ SQLite)
 │   ├── theme.ts                   # preset aksen/palet, cookie xloop_theme, CSS variable tema
 │   ├── density.ts                 # kepadatan tabel (cookie xloop_density, class density-compact)
-│   └── utils/                     # crypto (Ed25519 + key generator), format, csv, http, validate, cookie, cn
+│   └── utils/                     # crypto (Ed25519 + key generator), format, csv, http (readJsonBody),
+│                                  # validate (asSignedInt), pricing, refund, telegram (Bot API), json, cookie, cn
 ├── docs/
 │   ├── CLIENT_INTEGRATION.md      # cara verifikasi di sisi tool
+│   ├── RESELLER_API.md            # dokumentasi API publik /api/v1 (API key reseller)
+│   ├── VERIFICATION.md            # hasil pemeriksaan (verify:*) & checklist produksi
 │   └── examples/                  # contoh Python & JavaScript + sample response
 ├── data/                          # database SQLite (dibuat otomatis, di-gitignore)
 ├── public/
@@ -308,12 +331,13 @@ root/
 ├── dev/
 │   ├── local-server.mjs           # jalankan panel mode SQLite (dev/preview), keypair otomatis
 │   ├── sqlite-cli.mjs             # utilitas database: info | accounts | reset
-│   ├── sqlite-e2e-test.mjs        # uji end-to-end panel di mode SQLite (80 pemeriksaan, termasuk audit log & auto-ban)
+│   ├── sqlite-e2e-test.mjs        # uji end-to-end panel di mode SQLite (90 pemeriksaan, termasuk audit log & auto-ban)
 │   ├── validate-e2e-test.mjs      # uji end-to-end endpoint validasi di mode SQLite (28 pemeriksaan)
+│   ├── features-e2e-test.mjs      # uji tujuh fitur baru: akun, notifikasi, API key/v1, bot Telegram (91 pemeriksaan)
 │   ├── focus-test.mjs             # uji fokus input (regresi "keyboard mobile ketutup")
 │   └── sidebar-test.mjs           # uji tombol buka/tutup sidebar (44 pemeriksaan)
 ├── migration.sql                  # SQL siap run di Supabase SQL Editor
-├── vercel.json                    # konfigurasi + jadwal cron
+├── vercel.json                    # konfigurasi + jadwal cron (cleanup 03:00, digest 01:00)
 ├── middleware.ts                  # proteksi route + refresh sesi Supabase
 └── .env.example                   # daftar environment variables
 ```
@@ -380,10 +404,11 @@ Copy `.env.example` menjadi `.env.local` untuk local, dan isi variable yang sama
 | `LICENSE_SIGNING_PRIVATE_KEY` | ✅ | Private key Ed25519 (PKCS8 PEM → base64 satu baris) untuk menandatangani response `/api/validate` |
 | `LICENSE_SIGNING_PUBLIC_KEY` | ✅ | Public key Ed25519 (SPKI PEM → base64 satu baris). Ditampilkan di Tool Management untuk ditanam di tool |
 | `LICENSE_TOKEN_TTL_SECONDS` | ➖ | Masa berlaku token validasi dalam detik. Default `900` (15 menit) |
-| `CRON_SECRET` | ✅ | Secret untuk header `Authorization: Bearer <CRON_SECRET>` di `/api/cron/cleanup` |
+| `CRON_SECRET` | ✅ | Secret untuk header `Authorization: Bearer <CRON_SECRET>` di `/api/cron/cleanup` dan `/api/cron/digest` |
 | `XLOOP_DB` | ➖ | Paksa mode database: `supabase` atau `sqlite`. Kalau kosong, mode ditentukan otomatis (lihat bagian 13) |
 | `XLOOP_SQLITE_PATH` | ➖ | Lokasi file SQLite. Default `data/xloop.sqlite` |
 | `NEXT_PUBLIC_MOCK_MODE` | ➖ | `1` = paksa mode SQLite (nama lama, tetap didukung). **Jangan dipakai di production** |
+| `XLOOP_NOTIFY_WEBHOOK_URL` | ➖ | URL webhook HTTP untuk meneruskan notifikasi (auto-ban, brute-force, saldo tipis, ringkasan harian). Pengiriman gagal tidak pernah menggagalkan aksi utama |
 
 \* Ketiganya wajib **kalau memakai Supabase**. Kalau salah satu belum diisi, panel otomatis jalan di
 mode SQLite — jadi tidak ada lagi pesan “env belum diisi” yang bikin panel tidak bisa dibuka.
@@ -491,10 +516,10 @@ Migration sudah membuat akun Owner di dalamnya:
 | Email | `owner@gmail.com` |
 | Password | `Axell123` |
 
-> ⚠️ **Ganti password ini setelah login pertama.** Caranya: Supabase Dashboard →
-> **Authentication → Users → pilih user `owner@gmail.com` → Reset password / Update user**.
-> Karena panel tidak punya halaman ganti password sendiri, gunakan Supabase Dashboard
-> (atau minta Owner lain reset dari Supabase Dashboard juga).
+> ⚠️ **Ganti password ini setelah login pertama.** Caranya: login ke panel → **Pengaturan →
+> Keamanan Akun → Ganti password** (semua role bisa ganti password sendiri; ada juga tombol
+> “putus semua sesi lain”). Alternatif: Supabase Dashboard → **Authentication → Users →
+> pilih user → Reset password / Update user**.
 
 Sesudah itu:
 
@@ -592,12 +617,35 @@ Semua endpoint panel butuh session (cookie Supabase). Response seragam:
 |---|---|---|
 | GET | `/api/audit` | Jejak aksi pada key: `key_ban`, `key_unban`, `key_delete`, `hwid_reset`, `hwid_reset_all`, `key_auto_ban` — lengkap dengan aktor (owner/reseller/sistem), pemilik key, alasan ban, dan catatan. Query: `from, to, action, actor` (user_id, atau `system`), `key` (cari `key_value`), `page, per_page, format=csv`. Hanya Owner (reseller dapat `403`) |
 
+### Keamanan akun (semua role)
+
+| Method | Endpoint | Keterangan |
+|---|---|---|
+| POST | `/api/auth/password` | Ganti password sendiri (`current_password`, `new_password`, `logout_others`). Mode SQLite otomatis mencabut sesi lain |
+| GET | `/api/auth/sessions` | Daftar sesi/perangkat aktif; menandai sesi yang sedang dipakai |
+| DELETE | `/api/auth/sessions` | Putus semua sesi lain (sesi sekarang tetap hidup) |
+
+### Pengaturan & integrasi
+
+| Method | Endpoint | Keterangan |
+|---|---|---|
+| GET | `/api/settings` | (Owner) Konfigurasi runtime + nilai default + rentang aman |
+| PUT | `/api/settings` | (Owner) Patch sebagian; nilai dijepit ke rentang aman, perubahan tercatat di activity log |
+| GET/POST | `/api/settings/telegram` | (Owner) Status bot + live webhook info; aksi `connect`, `set_webhook`, `rotate_webhook`, `remove_webhook`, `disconnect`, `notifications`, `test` |
+| GET/POST/DELETE | `/api/telegram/link` | Tautkan/lepas chat Telegram akun ini (kode 6 karakter, berlaku 10 menit, sekali pakai) |
+| GET | `/api/activity` | Activity log akun & sistem (filter tanggal/aksi/aktor, pagination, CSV) |
+| GET/POST | `/api/api-keys` | Daftar & buat API key reseller (token hanya tampil sekali; Owner boleh membuatkan untuk reseller) |
+| DELETE | `/api/api-keys/[id]` | Cabut API key (soft revoke — langsung tidak berlaku) |
+
 ### Publik & mesin
 
 | Method | Endpoint | Keterangan |
 |---|---|---|
 | POST | `/api/validate` | Validasi key dari tool (tanpa session, response bertanda tangan) |
 | GET | `/api/cron/cleanup` | Cleanup harian (`Authorization: Bearer CRON_SECRET`) |
+| GET | `/api/cron/digest` | Ringkasan harian ke Telegram/webhook Owner (`Authorization: Bearer CRON_SECRET`) |
+| POST | `/api/telegram/webhook` | Webhook bot Telegram (secret token) |
+| GET/POST | `/api/v1/me`, `/api/v1/tools`, `/api/v1/presets`, `/api/v1/keys`, `/api/v1/keys/[id]`, `/api/v1/keys/[id]/hwid-reset`, `/api/v1/credits` | API publik dengan API key `xlp_…` — lihat [`docs/RESELLER_API.md`](docs/RESELLER_API.md) |
 
 ---
 
@@ -688,6 +736,20 @@ per-key, dan double-check dilakukan di dalam kunci tersebut).
     kuota reseller (filter `actor_role = 'reseller'` di query hitung).
 14. **Password** mode SQLite di-hash dengan `scrypt` (N=16384, r=8, p=1, salt 16 byte) dan
     diverifikasi dengan `timingSafeEqual` supaya tidak bocor lewat waktu eksekusi.
+15. **API key `/api/v1`** disimpan **hanya sebagai hash SHA-256** (token asli tampil sekali), dicek
+    dengan `timingSafeEqual`, dibatasi kuota per key (rate limit + `api_request_logs`), bisa dicabut
+    (`is_active = false`) dan mati seketika, serta bisa dimatikan Owner lewat saklar API publik.
+    Setiap request tercatat (metode, path, status, IP) dan setiap generate/reset HWID masuk audit log.
+16. **Webhook Telegram** wajib membawa header `X-Telegram-Bot-Api-Secret-Token` yang dibandingkan
+    konstan-waktu; kalau bot belum dikonfigurasi, request dijawab `200` tanpa efek (supaya Telegram
+    berhenti mengirim ulang). **Bot token & webhook secret disimpan sebagai dokumen rahasia** di
+    `app_settings` dan tidak pernah dikirim ke browser — panel hanya menerima statusnya.
+17. **Ganti password** (semua role) memverifikasi password lama dulu, lalu — kalau `logout_others`
+    aktif — mencabut semua sesi lain; di mode Supabase sesi dikelola `supabase.auth`, di mode SQLite
+    token sesi diganti dan sesi lain dihapus. Semuanya tercatat di activity log.
+18. **Notifikasi keluar** (`notify.ts`) tidak pernah menggagalkan aksi utama: pengiriman dibungkus
+    `try/catch`, memakai timeout pendek (≤ 3,5−5 detik), dibatasi anti-spam per `dedupe_key`, dan
+    kegagalannya hanya dicatat di `notification_logs` + console server.
 
 ---
 
@@ -714,7 +776,8 @@ Runner (`dev/local-server.mjs`) sekaligus membuat **keypair Ed25519** sekali dan
 | Reseller | `andi@example.com` / `budi@example.com` / `citra@example.com` | `Reseller123` |
 
 `citra` sengaja dinonaktifkan (`is_active = false`) untuk menguji alur "Akun kamu dinonaktifkan".
-Ganti password owner setelah login pertama (Owner → Reseller tidak bisa; gunakan skrip/menu reset password).
+Ganti password setelah login pertama dari **Pengaturan → Keamanan Akun → Ganti password** (semua role
+bisa ganti password sendiri; Owner juga masih bisa reset password reseller dari menu Reseller).
 
 **Isi database contoh**: 2 tool + 3 version, 5 preset durasi, 3 reseller, 12 key (8 active, 3 expired,
 1 banned), 11 device log, 15 baris credit log (termasuk satu aksi `Perpanjang`) — sama seperti data pratinjau sebelumnya, tapi sekarang
@@ -742,10 +805,17 @@ reset HWID (`register_device`), credit log + export CSV, dan `/api/validate` len
 Ed25519, rate limit, anti-bruteforce, serta auto-ban. Sesi memakai cookie `xloop_session` (HttpOnly,
 7 hari) yang divalidasi ke tabel `auth_sessions`.
 
+Tabel tambahan mengikuti fitur baru (dibuat di **kedua** mode, Postgres lewat `migration.sql`):
+`app_settings` (konfigurasi runtime + kredensial bot Telegram), `reseller_api_keys` + `api_request_logs`
+(API publik `/api/v1`), `telegram_links` + `telegram_link_codes` (bot & penautan chat),
+`notification_logs` (riwayat + anti-spam notifikasi), dan `activity_logs` (aktivitas akun & sistem).
+Constraint `credit_logs.action` juga diperluas dengan `adjustment` (penyesuaian credit oleh Owner).
+
 Catatan migrasi: kalau kamu sudah punya `data/xloop.sqlite` dari versi sebelumnya, skemanya diperbarui
 otomatis **sekali** saat panel dijalankan — kolom `keys.credit_cost` ditambahkan (diisi perkiraan dari
-preset untuk data lama; key baru selalu dicatat persis) dan CHECK constraint `credit_logs` diperluas
-untuk aksi `extend` & `refund` — data lamamu tidak hilang.
+preset untuk data lama; key baru selalu dicatat persis), CHECK constraint `credit_logs` diperluas
+untuk aksi `extend`, `refund`, & `adjustment`, tabel `auth_sessions` mendapat kolom `ip`/`user_agent`,
+dan tabel-tabel fitur baru dibuat — data lamamu tidak hilang.
 
 Dua perbedaan yang perlu diketahui:
 
@@ -770,7 +840,8 @@ Dua perbedaan yang perlu diketahui:
 | `npm run generate-keypair` | Buat keypair Ed25519 (output base64 siap tempel ke env) |
 | `npm run make-sample` | Buat `docs/examples/sample-response.json` (response bertanda tangan) untuk menguji verifier sisi client |
 | `npm run verify:validate` | Uji end-to-end `/api/validate` di mode SQLite (keypair sementara + file DB sementara) — 28 pemeriksaan: signature Ed25519, TTL, HWID/slot, semua `reason`, anti-bruteforce, auto-ban, rate limit |
-| `npm run verify:sqlite` | Uji end-to-end panel di mode SQLite — 80 pemeriksaan: login (scrypt), session cookie, CRUD, generate + potong credit (`harga × quantity × max device`), perpanjang key pakai preset + tambah device, batas saldo (402), **pengembalian credit saat hapus key** (aktif vs expired vs banned vs milik sendiri), ban/unban dengan alasan terstruktur, reset HWID, **audit log** (jejak ban/unban/hapus/reset HWID/auto-ban, filter, CSV, jejak tetap ada setelah key dihapus), **unban auto-ban khusus Owner**, topup, akun nonaktif, logout, persistensi DB |
+| `npm run verify:sqlite` | Uji end-to-end panel di mode SQLite — 90 pemeriksaan: login (scrypt), session cookie, CRUD, generate + potong credit (`harga × quantity × max device`), perpanjang key pakai preset + tambah device, batas saldo (402), **pengembalian credit saat hapus key** (aktif vs expired vs banned vs milik sendiri), ban/unban dengan alasan terstruktur, reset HWID, **audit log** (jejak ban/unban/hapus/reset HWID/auto-ban, filter, CSV, jejak tetap ada setelah key dihapus), **unban auto-ban khusus Owner**, topup, akun nonaktif, logout, persistensi DB |
+| `npm run verify:features` | Uji end-to-end **tujuh fitur baru** di mode SQLite — 91 pemeriksaan: ganti password + sesi, penyesuaian credit, konfigurasi runtime (penjepitan nilai), analitik anti-abuse, notifikasi keluar (brute-force, auto-ban, saldo tipis, digest + anti-duplikat, webhook uji lokal), API key + `/api/v1` (auth, rate limit, kuota reset HWID, audit), bot Telegram (webhook, penautan, perintah), dan retensi/cleanup |
 | `npm run demo` (alias `npm run local`) | Jalankan panel mode SQLite di `http://localhost:3010` |
 | `npm run db:info` / `db:accounts` / `db:reset` | Utilitas database SQLite (lihat bagian 13) |
 | `npm run test:focus` | Uji fokus semua input di browser sungguhan (mobile emulation): pastikan fokus tidak lepas saat mengetik & kembali ke tombol pemicu saat modal ditutup. Butuh `npm i -D playwright && npx playwright install chromium`, dan server lokal (`npm run demo`) berjalan di port 3010 |

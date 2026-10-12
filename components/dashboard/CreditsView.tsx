@@ -20,7 +20,7 @@ interface CreditLogItem {
   user_id: string;
   username: string | null;
   email: string | null;
-  action: "topup" | "generate" | "extend" | "refund";
+  action: "topup" | "generate" | "extend" | "refund" | "adjustment";
   amount: number;
   balance_after: number;
   note: string | null;
@@ -207,6 +207,7 @@ export function CreditsView({ isOwner }: { isOwner: boolean }) {
                 { value: "generate", label: "Generate" },
                 { value: "extend", label: "Perpanjang" },
                 { value: "refund", label: "Pengembalian" },
+                { value: "adjustment", label: "Penyesuaian" },
               ]}
             />
           </Field>
@@ -288,12 +289,18 @@ export function CreditsView({ isOwner }: { isOwner: boolean }) {
                       </td>
                     ) : null}
                     <td className="whitespace-nowrap px-3 py-1.5">
-                      <span className={item.action === "topup" ? "text-active" : "text-muted"}>
+                      <span
+                        className={
+                          item.action === "topup" || item.action === "adjustment"
+                            ? "text-active"
+                            : "text-muted"
+                        }
+                      >
                         {CREDIT_ACTION_LABEL[item.action] ?? item.action}
                       </span>
                     </td>
                     <td className="whitespace-nowrap px-3 py-1.5 tabular-nums">
-                      <span className={item.amount > 0 ? "text-active" : "text-muted"}>
+                      <span className={item.amount > 0 ? "text-active" : "text-banned"}>
                         {item.amount > 0 ? "+" : ""}
                         {formatNumber(item.amount)}
                       </span>

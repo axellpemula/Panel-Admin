@@ -8,7 +8,7 @@ import { errorMessage, jsonError, jsonOk } from "@/lib/utils/http";
 
 export const dynamic = "force-dynamic";
 
-const CREDIT_ACTIONS: CreditAction[] = ["topup", "generate", "extend", "refund"];
+const CREDIT_ACTIONS: CreditAction[] = ["topup", "generate", "extend", "refund", "adjustment"];
 
 interface CreditLogItem {
   id: string;

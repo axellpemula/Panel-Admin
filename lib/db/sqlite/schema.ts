@@ -21,13 +21,16 @@ import type { SqliteDatabase } from "@/lib/db/sqlite/driver";
 const CREDIT_LOGS_DDL = `CREATE TABLE IF NOT EXISTS credit_logs (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES profiles(id),
-  action TEXT NOT NULL CHECK (action IN ('topup', 'generate', 'extend', 'refund')),
+  action TEXT NOT NULL CHECK (action IN ('topup', 'generate', 'extend', 'refund', 'adjustment')),
   amount INTEGER NOT NULL,
   balance_after INTEGER NOT NULL,
   note TEXT,
   created_by TEXT REFERENCES profiles(id),
   created_at TEXT NOT NULL
 );`;
+
+/** Nilai aksi credit yang sah — dipakai migrasi ringan untuk memeriksa CHECK lama. */
+const CREDIT_ACTIONS_SQLITE = ["topup", "generate", "extend", "refund", "adjustment"] as const;
 
 export const SQLITE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS profiles (
@@ -165,8 +168,91 @@ CREATE TABLE IF NOT EXISTS auth_accounts (
 CREATE TABLE IF NOT EXISTS auth_sessions (
   token TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
+  -- IP & user-agent dipakai kartu "Sesi aktif" di Pengaturan (mode SQLite).
+  ip TEXT,
+  user_agent TEXT,
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
+);
+
+-- Konfigurasi runtime (diatur Owner dari menu Pengaturan). Satu baris per dokumen:
+--   'runtime'  → override limit/analitik/API/notifikasi,
+--   'telegram' → kredensial bot Telegram (RAHASIA — tidak pernah dikirim ke browser).
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT REFERENCES profiles(id) ON DELETE SET NULL
+);
+
+-- API key reseller untuk akses /api/v1 (token asli hanya tampil sekali).
+CREATE TABLE IF NOT EXISTS reseller_api_keys (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  token_prefix TEXT NOT NULL,
+  token_hash TEXT UNIQUE NOT NULL,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  last_used_at TEXT,
+  requests_count INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT REFERENCES profiles(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  revoked_at TEXT
+);
+
+-- Log request /api/v1 (rate limit per token + statistik pemakaian).
+CREATE TABLE IF NOT EXISTS api_request_logs (
+  id TEXT PRIMARY KEY,
+  api_key_id TEXT REFERENCES reseller_api_keys(id) ON DELETE CASCADE,
+  user_id TEXT REFERENCES profiles(id) ON DELETE SET NULL,
+  method TEXT,
+  path TEXT,
+  status INTEGER,
+  ip TEXT,
+  created_at TEXT NOT NULL
+);
+
+-- Tautan akun panel ⇄ chat Telegram.
+CREATE TABLE IF NOT EXISTS telegram_links (
+  user_id TEXT PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+  chat_id TEXT UNIQUE NOT NULL,
+  username TEXT,
+  linked_at TEXT
+);
+
+-- Kode sekali pakai untuk menautkan chat (perintah /start <kode>).
+CREATE TABLE IF NOT EXISTS telegram_link_codes (
+  code TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used_at TEXT
+);
+
+-- Jejak notifikasi keluar + anti-spam (dedupe per kejadian).
+CREATE TABLE IF NOT EXISTS notification_logs (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL,
+  event TEXT NOT NULL,
+  dedupe_key TEXT,
+  target TEXT NOT NULL,
+  success INTEGER NOT NULL,
+  summary TEXT,
+  detail TEXT
+);
+
+-- Aktivitas akun & sistem di luar aksi key (ganti password, API key, pengaturan, dst).
+CREATE TABLE IF NOT EXISTS activity_logs (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL,
+  actor_id TEXT REFERENCES profiles(id) ON DELETE SET NULL,
+  actor_username TEXT,
+  actor_role TEXT CHECK (actor_role IN ('owner', 'reseller', 'system')),
+  action TEXT NOT NULL,
+  target_type TEXT,
+  target_id TEXT,
+  target_label TEXT,
+  detail TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_validation_ip_time ON validation_attempts (ip, created_at DESC);
@@ -195,6 +281,16 @@ CREATE INDEX IF NOT EXISTS idx_tool_versions_tool_type ON tool_versions (tool_ty
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions (user_id);
 CREATE INDEX IF NOT EXISTS idx_login_logs_user_time ON login_logs (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_login_logs_created_at ON login_logs (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_reseller_api_keys_user ON reseller_api_keys (user_id);
+CREATE INDEX IF NOT EXISTS idx_reseller_api_keys_hash ON reseller_api_keys (token_hash);
+CREATE INDEX IF NOT EXISTS idx_api_request_logs_key_time ON api_request_logs (api_key_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_api_request_logs_created_at ON api_request_logs (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_telegram_link_codes_user ON telegram_link_codes (user_id);
+CREATE INDEX IF NOT EXISTS idx_notification_logs_dedupe ON notification_logs (dedupe_key, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notification_logs_created_at ON notification_logs (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_created_at ON activity_logs (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_action ON activity_logs (action);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_actor ON activity_logs (actor_id);
 `;
 
 /** Kolom boolean per tabel (INTEGER 0/1 di SQLite, boolean di JS). */
@@ -205,6 +301,8 @@ export const BOOLEAN_COLUMNS: Record<string, readonly string[]> = {
   duration_presets: ["is_active"],
   validation_attempts: ["success"],
   login_logs: ["success"],
+  reseller_api_keys: ["is_active"],
+  notification_logs: ["success"],
 };
 
 /**
@@ -263,12 +361,15 @@ export const TABLES_WITH_UPDATED_AT = new Set([
  *    data lama.
  *
  * 2. **CHECK constraint `credit_logs.action`** — SQLite tidak bisa mengubah CHECK, jadi
- *    tabelnya dibangun ulang (rename → create → copy → drop) kalau nilai aksi baru
- *    (`extend`, `refund`) belum ada di definisinya.
+ *    tabelnya dibangun ulang (rename → create → copy → drop) kalau ada nilai aksi baru
+ *    (`extend`, `refund`, `adjustment`) yang belum ada di definisinya.
  *
  * 3. **Kolom metadata ban di `keys`** (`ban_reason`, `ban_note`, `banned_by`,
  *    `banned_at`) — dipakai fitur audit log & alasan ban terstruktur. Tabel
  *    `audit_logs` sendiri dibuat oleh `SQLITE_SCHEMA_SQL` (CREATE IF NOT EXISTS).
+ *
+ * 4. **Kolom `auth_sessions.ip` & `auth_sessions.user_agent`** — ditampilkan di
+ *    kartu "Sesi aktif" (Pengaturan → Keamanan Akun).
  */
 export function migrateSqliteSchema(db: SqliteDatabase): string[] {
   const changes: string[] = [];
@@ -304,7 +405,7 @@ export function migrateSqliteSchema(db: SqliteDatabase): string[] {
     .get() as { sql: string } | undefined;
 
   const needsRebuild =
-    Boolean(logs) && (!logs!.sql.includes("'extend'") || !logs!.sql.includes("'refund'"));
+    Boolean(logs) && CREDIT_ACTIONS_SQLITE.some((action) => !logs!.sql.includes(`'${action}'`));
 
   if (needsRebuild) {
     const rebuild = CREDIT_LOGS_DDL.replace("IF NOT EXISTS ", "").replace(
@@ -326,7 +427,7 @@ export function migrateSqliteSchema(db: SqliteDatabase): string[] {
     } finally {
       db.pragma("foreign_keys = ON");
     }
-    changes.push("CHECK credit_logs dibangun ulang (aksi extend & refund)");
+    changes.push(`CHECK credit_logs dibangun ulang (aksi: ${CREDIT_ACTIONS_SQLITE.join(", ")})`);
   }
 
   // --- 3. Kolom metadata ban di keys (audit log) ---
@@ -346,6 +447,24 @@ export function migrateSqliteSchema(db: SqliteDatabase): string[] {
       });
     })();
     changes.push(`keys: kolom metadata ban ditambahkan (${missing.map(([name]) => name).join(", ")})`);
+  }
+
+  // --- 4. Kolom ip & user_agent di auth_sessions (kartu Sesi Aktif) ---
+  const sessionColumns = db.prepare("PRAGMA table_info(auth_sessions)").all() as { name: string }[];
+  if (sessionColumns.length > 0) {
+    const sessionCols = new Set(sessionColumns.map((column) => column.name));
+    const missingSessionCols: string[] = [];
+    if (!sessionCols.has("ip")) {
+      db.exec("ALTER TABLE auth_sessions ADD COLUMN ip TEXT");
+      missingSessionCols.push("ip");
+    }
+    if (!sessionCols.has("user_agent")) {
+      db.exec("ALTER TABLE auth_sessions ADD COLUMN user_agent TEXT");
+      missingSessionCols.push("user_agent");
+    }
+    if (missingSessionCols.length > 0) {
+      changes.push(`auth_sessions: kolom ditambahkan (${missingSessionCols.join(", ")})`);
+    }
   }
 
   return changes;

@@ -16,6 +16,7 @@ export type ApiErrorCode =
   | "insufficient_credit"
   | "rate_limited"
   | "hwid_reset_cooldown"
+  | "api_disabled"
   | "server_error";
 
 export interface ApiSuccess<T> {

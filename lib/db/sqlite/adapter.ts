@@ -857,8 +857,22 @@ function createSqliteAuth() {
       };
     },
 
-    signInWithPassword: async ({ email, password }: { email: string; password: string }) => {
-      const result = await signIn(email, password);
+    /**
+     * `ip`/`user_agent` adalah tambahan khusus mode SQLite (dipakai kartu
+     * "Sesi aktif"). Supabase mengabaikan field tambahan ini.
+     */
+    signInWithPassword: async ({
+      email,
+      password,
+      ip,
+      user_agent,
+    }: {
+      email: string;
+      password: string;
+      ip?: string | null;
+      user_agent?: string | null;
+    }) => {
+      const result = await signIn(email, password, { ip, userAgent: user_agent });
       if (result.error) return { data: { user: null, session: null }, error: result.error };
       return { data: { user: result.data.user, session: { access_token: "local" } }, error: null };
     },

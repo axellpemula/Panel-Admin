@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server";
 
 import { LIMITS, KEY_REGEX, NONCE_REGEX, RATE_LIMIT, type ValidationReason } from "@/lib/constants";
-import { recordAuditLog } from "@/lib/api/audit";
-import { licensePrivateKey, licenseTokenTtlSeconds } from "@/lib/env";
+import { notifyInBackground } from "@/lib/api/notify";
+import { loadRuntime, type RuntimeSettings } from "@/lib/api/settings";
+import { licensePrivateKey } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/types/database";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -87,16 +88,42 @@ export async function POST(request: NextRequest) {
     return validateFailure("server_error", 500);
   }
 
+  // Konfigurasi runtime (limit, TTL token) — diatur Owner dari Pengaturan.
+  const runtime = await loadRuntime(admin);
+
   // ---------- 2. Rate limit (query, bukan in-memory) ----------
-  const rateLimit = await checkRateLimits(admin, ip, key);
+  const rateLimit = await checkRateLimits(
+    admin,
+    ip,
+    key,
+    runtime.validate.perIpPerMinute,
+    runtime.validate.perKeyPerMinute,
+  );
   if (rateLimit) {
     await logAttempt(admin, ip, key, hardwareId, false, "rate_limited");
     return validateRateLimited();
   }
 
-  // Anti-bruteforce: IP dengan ≥ 5 `invalid_key` dalam 10 menit → semua
+  // Anti-bruteforce: IP dengan ≥ N `invalid_key` dalam window → semua
   // kegagalan berikutnya disamarkan jadi `invalid_key`.
-  const maskFailures = await isBruteForceIp(admin, ip);
+  const bruteForce = await isBruteForceIp(admin, ip, runtime);
+  const maskFailures = bruteForce.active;
+
+  // Notifikasi Owner begitu ambang bruteforce BARU terlampaui (sekali per window
+  // berkat dedupe_key — pengiriman tidak menahan response).
+  if (bruteForce.justCrossed) {
+    notifyInBackground(admin, {
+      event: "validation_burst",
+      title: "Percobaan brute-force key terdeteksi",
+      lines: [
+        `IP ${ip} sudah ${bruteForce.count}x gagal dengan key tidak dikenal dalam ${runtime.validate.bruteForceWindowMinutes} menit terakhir.`,
+        "Semua kegagalan berikutnya dari IP ini disamarkan sebagai `invalid_key` (anti-bruteforce).",
+        `Untuk memblokir permanen, atur firewall/proxy di depan panel.`,
+      ],
+      dedupeKey: `validation_burst:${ip}`,
+      detail: { ip, failures: bruteForce.count, window_minutes: runtime.validate.bruteForceWindowMinutes },
+    });
+  }
 
   /** Helper: catat log lalu balas gagal (dengan masking kalau perlu). */
   const fail = async (reason: ValidationReason, status = 200) => {
@@ -194,14 +221,41 @@ export async function POST(request: NextRequest) {
     //    berbeda bisa lolos karena request-request tersebut membaca hitungan
     //    lama secara bersamaan.
     try {
-      await admin.rpc("check_auto_ban", {
+      const banResult = await admin.rpc("check_auto_ban", {
         p_key_id: keyRow.id,
         p_hwid: hardwareId,
         p_ip: ip,
-        p_distinct_limit: RATE_LIMIT.autoBanDistinctHwids,
-        p_window_minutes: RATE_LIMIT.autoBanWindowMinutes,
+        p_distinct_limit: runtime.validate.autoBanDistinctHwids,
+        p_window_minutes: runtime.validate.autoBanWindowMinutes,
         p_note: RATE_LIMIT.autoBanNote,
       });
+
+      const banRow = Array.isArray(banResult.data)
+        ? (banResult.data[0] as { result?: string; distinct_hwids?: number } | undefined)
+        : undefined;
+
+      // 'banned' = baru saja diblokir oleh panggilan ini (bukan 'already').
+      if (banRow?.result === "banned") {
+        notifyInBackground(admin, {
+          event: "key_auto_ban",
+          title: "Key di-auto-ban (terlalu banyak device)",
+          lines: [
+            `Key ${keyRow.key_value} diblokir otomatis: ${banRow.distinct_hwids ?? runtime.validate.autoBanDistinctHwids} HWID berbeda mencoba memakainya dalam ${runtime.validate.autoBanWindowMinutes} menit.`,
+            `HWID pemicu: ${hardwareId}`,
+            `IP: ${ip}`,
+            "Unban hanya bisa dilakukan Owner dari Key List (reseller tidak bisa membukanya).",
+          ],
+          dedupeKey: `auto_ban:${keyRow.id}`,
+          notifyUserIds: [keyRow.created_by],
+          detail: {
+            key_id: keyRow.id,
+            key_value: keyRow.key_value,
+            ip,
+            hardware_id: hardwareId,
+            distinct_hwids: banRow.distinct_hwids ?? null,
+          },
+        });
+      }
     } catch (rpcError) {
       // Jangan sampai gagal ban menggagalkan response ke user — cukup log.
       console.warn("[validate] check_auto_ban gagal:", (rpcError as Error).message);
@@ -245,7 +299,7 @@ export async function POST(request: NextRequest) {
   // ---------- 11. Bangun payload + tanda tangani ----------
   let signed: SignedResponse;
   try {
-    const ttlSeconds = licenseTokenTtlSeconds();
+    const ttlSeconds = runtime.validate.tokenTtlSeconds;
     const serverTime = new Date();
     const tokenExpiresAt = new Date(serverTime.getTime() + ttlSeconds * 1000);
 
@@ -334,6 +388,8 @@ async function checkRateLimits(
   admin: SupabaseClient<Database>,
   ip: string,
   key: string,
+  perIpPerMinute: number,
+  perKeyPerMinute: number,
 ): Promise<boolean> {
   const oneMinuteAgo = new Date(Date.now() - 60_000).toISOString();
 
@@ -354,15 +410,23 @@ async function checkRateLimits(
       .or("reason.is.null,reason.neq.rate_limited"),
   ]);
 
-  if ((ipCount.count ?? 0) >= RATE_LIMIT.perIpPerMinute) return true;
-  if ((keyCount.count ?? 0) >= RATE_LIMIT.perKeyPerMinute) return true;
+  if ((ipCount.count ?? 0) >= perIpPerMinute) return true;
+  if ((keyCount.count ?? 0) >= perKeyPerMinute) return true;
   return false;
 }
 
-/** IP dengan ≥ 5 `invalid_key` dalam 10 menit terakhir dianggap bruteforce. */
-async function isBruteForceIp(admin: SupabaseClient<Database>, ip: string): Promise<boolean> {
+/**
+ * IP dengan ≥ N `invalid_key` dalam window terakhir dianggap bruteforce.
+ * Mengembalikan juga `justCrossed` (tepat menyentuh ambang) supaya notifikasi
+ * hanya dikirim sekali saat ambang baru terlampaui.
+ */
+async function isBruteForceIp(
+  admin: SupabaseClient<Database>,
+  ip: string,
+  runtime: RuntimeSettings,
+): Promise<{ active: boolean; count: number; justCrossed: boolean }> {
   const windowStart = new Date(
-    Date.now() - RATE_LIMIT.bruteForceWindowMinutes * 60_000,
+    Date.now() - runtime.validate.bruteForceWindowMinutes * 60_000,
   ).toISOString();
 
   const { count, error } = await admin
@@ -374,9 +438,15 @@ async function isBruteForceIp(admin: SupabaseClient<Database>, ip: string): Prom
 
   if (error) {
     console.warn("[validate] cek bruteforce gagal:", error.message);
-    return false;
+    return { active: false, count: 0, justCrossed: false };
   }
-  return (count ?? 0) >= RATE_LIMIT.bruteForceFailures;
+
+  const total = count ?? 0;
+  return {
+    active: total >= runtime.validate.bruteForceFailures,
+    count: total,
+    justCrossed: total === runtime.validate.bruteForceFailures,
+  };
 }
 
 /**

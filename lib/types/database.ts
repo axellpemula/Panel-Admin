@@ -5,7 +5,7 @@
 
 export type UserRole = "owner" | "reseller";
 export type KeyStatus = "active" | "expired" | "banned";
-export type CreditAction = "topup" | "generate" | "extend" | "refund";
+export type CreditAction = "topup" | "generate" | "extend" | "refund" | "adjustment";
 
 /** Alasan ban yang terstruktur. `auto_hwid` dikhususkan untuk auto-ban sistem. */
 export type BanReason = "manual" | "auto_hwid" | "refund" | "other";
@@ -162,6 +162,87 @@ export type LoginLogRow = {
   user_agent: string | null;
 };
 
+/**
+ * API key reseller (akses mesin ke /api/v1). Token asli hanya ditampilkan sekali
+ * saat dibuat — yang tersimpan hanya prefix (untuk ditampilkan) + hash sha256.
+ */
+export type ResellerApiKeyRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  token_prefix: string;
+  token_hash: string;
+  is_active: boolean;
+  last_used_at: string | null;
+  requests_count: number;
+  created_by: string | null;
+  created_at: string;
+  revoked_at: string | null;
+};
+
+/** Log request /api/v1 — rate limit per token & statistik pemakaian. */
+export type ApiRequestLogRow = {
+  id: string;
+  api_key_id: string | null;
+  user_id: string | null;
+  method: string | null;
+  path: string | null;
+  status: number | null;
+  ip: string | null;
+  created_at: string;
+};
+
+/** Tautan akun panel ⇄ chat Telegram (bot dua arah + notifikasi). */
+export type TelegramLinkRow = {
+  user_id: string;
+  chat_id: string;
+  username: string | null;
+  linked_at: string;
+};
+
+/** Kode sekali pakai untuk menautkan chat Telegram (`/start <kode>`). */
+export type TelegramLinkCodeRow = {
+  code: string;
+  user_id: string;
+  created_at: string;
+  expires_at: string;
+  used_at: string | null;
+};
+
+/** Jejak notifikasi keluar (Telegram/webhook) + dasar anti-spam (dedupe_key). */
+export type NotificationLogRow = {
+  id: string;
+  created_at: string;
+  event: string;
+  dedupe_key: string | null;
+  target: string;
+  success: boolean;
+  summary: string | null;
+  detail: Record<string, unknown> | null;
+};
+
+/** Aktivitas akun & sistem di luar aksi key (ganti password, API key, pengaturan, dst). */
+export type ActivityLogRow = {
+  id: string;
+  created_at: string;
+  actor_id: string | null;
+  actor_username: string | null;
+  actor_role: AuditActorRole | null;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  target_label: string | null;
+  detail: Record<string, unknown> | null;
+};
+
+/** Konfigurasi runtime (dokumen di `app_settings`). */
+export type AppSettingRow = {
+  key: string;
+  value: unknown;
+  updated_at: string;
+  updated_by: string | null;
+};
+
 type Table<Row, Insert = Partial<Row>, Update = Partial<Row>> = {
   Row: Row;
   Insert: Insert;
@@ -258,6 +339,65 @@ export interface Database {
           reason?: string | null;
           ip?: string | null;
           user_agent?: string | null;
+        }
+      >;
+      app_settings: Table<
+        AppSettingRow,
+        { key: string; value: unknown; updated_by?: string | null }
+      >;
+      reseller_api_keys: Table<
+        ResellerApiKeyRow,
+        {
+          user_id: string;
+          name: string;
+          token_prefix: string;
+          token_hash: string;
+          is_active?: boolean;
+          created_by?: string | null;
+          revoked_at?: string | null;
+        }
+      >;
+      api_request_logs: Table<
+        ApiRequestLogRow,
+        {
+          api_key_id?: string | null;
+          user_id?: string | null;
+          method?: string | null;
+          path?: string | null;
+          status?: number | null;
+          ip?: string | null;
+        }
+      >;
+      telegram_links: Table<
+        TelegramLinkRow,
+        { user_id: string; chat_id: string; username?: string | null }
+      >;
+      telegram_link_codes: Table<
+        TelegramLinkCodeRow,
+        { code: string; user_id: string; expires_at: string; used_at?: string | null }
+      >;
+      notification_logs: Table<
+        NotificationLogRow,
+        {
+          event: string;
+          dedupe_key?: string | null;
+          target: string;
+          success: boolean;
+          summary?: string | null;
+          detail?: Record<string, unknown> | null;
+        }
+      >;
+      activity_logs: Table<
+        ActivityLogRow,
+        {
+          actor_id?: string | null;
+          actor_username?: string | null;
+          actor_role?: AuditActorRole | null;
+          action: string;
+          target_type?: string | null;
+          target_id?: string | null;
+          target_label?: string | null;
+          detail?: Record<string, unknown> | null;
         }
       >;
     };

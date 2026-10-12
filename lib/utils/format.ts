@@ -143,6 +143,7 @@ export const CREDIT_ACTION_LABEL: Record<string, string> = {
   generate: "Generate",
   extend: "Perpanjang",
   refund: "Pengembalian",
+  adjustment: "Penyesuaian",
 };
 
 export const STATUS_LABEL: Record<string, string> = {

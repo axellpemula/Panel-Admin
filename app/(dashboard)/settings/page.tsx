@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 
 import { SettingsView, type AppInfo } from "@/components/dashboard/SettingsView";
-import { HWID_RESET, LIMITS, RATE_LIMIT } from "@/lib/constants";
+import { loadRuntime, publicSettings } from "@/lib/api/settings";
 import { requireSession } from "@/lib/api/session";
-import { dbMode, licensePublicKey, licenseTokenTtlSeconds, sqliteDatabasePath } from "@/lib/env";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { dbMode, licensePublicKey, sqliteDatabasePath } from "@/lib/env";
 import { DENSITY_COOKIE, parseDensity } from "@/lib/density";
 import { parseTheme, THEME_COOKIE } from "@/lib/theme";
 
@@ -26,6 +27,24 @@ export default async function SettingsPage() {
   const session = await requireSession("/settings");
   const mode = dbMode();
 
+  // Info web menampilkan nilai yang BERLAKU (konfigurasi runtime, bukan constants),
+  // supaya Owner tidak bingung saat limit diubah dari kartu "Batas & Sistem".
+  const admin = createAdminClient();
+  const runtime = await loadRuntime(admin);
+  const limited = publicSettings(runtime);
+
+  // Owner butuh daftar reseller untuk "buat API key untuk akun lain".
+  const resellers =
+    session.isOwner
+      ? ((
+          await admin
+            .from("profiles")
+            .select("id, username")
+            .eq("role", "reseller")
+            .order("username", { ascending: true })
+        ).data ?? [])
+      : [];
+
   const appInfo: AppInfo = {
     name: "XLOOP PANEL",
     version: appPackage.version,
@@ -34,17 +53,17 @@ export default async function SettingsPage() {
     dbMode: mode,
     sqlitePath: mode === "sqlite" ? sqliteDatabasePath() : null,
     signingKeyReady: Boolean(licensePublicKey()),
-    tokenTtlSeconds: licenseTokenTtlSeconds(),
+    tokenTtlSeconds: runtime.validate.tokenTtlSeconds,
     timezone: "Asia/Jakarta (WIB, UTC+7)",
     keyFormat: "XLVP-XXXX-XXXX",
     limits: {
-      maxDeviceMin: LIMITS.maxDeviceMin,
-      maxDeviceMax: LIMITS.maxDeviceMax,
-      quantityOwnerMax: LIMITS.quantityOwnerMax,
-      quantityResellerMax: LIMITS.quantityResellerMax,
-      hwidResetLimit: HWID_RESET.limit,
-      hwidResetWindowHours: HWID_RESET.windowHours,
-      attemptsRetentionDays: RATE_LIMIT.retentionDays,
+      maxDeviceMin: limited.limits.maxDeviceMin,
+      maxDeviceMax: limited.limits.maxDeviceMax,
+      quantityOwnerMax: limited.limits.quantityOwnerMax,
+      quantityResellerMax: limited.limits.quantityResellerMax,
+      hwidResetLimit: limited.hwid.resetLimit,
+      hwidResetWindowHours: limited.hwid.resetWindowHours,
+      attemptsRetentionDays: limited.retention.attemptsDays,
     },
   };
 
@@ -59,6 +78,7 @@ export default async function SettingsPage() {
         createdAt: session.profile.created_at,
       }}
       appInfo={appInfo}
+      resellers={resellers as { id: string; username: string }[]}
       initialTheme={parseTheme(cookies().get(THEME_COOKIE.name)?.value)}
       initialDensity={parseDensity(cookies().get(DENSITY_COOKIE.name)?.value)}
     />

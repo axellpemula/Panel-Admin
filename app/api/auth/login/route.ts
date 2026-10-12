@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 
 import { checkLoginAttempt, clearLoginFailures, recordLoginFailure } from "@/lib/api/login-guard";
 import { recordLoginLog, type LoginFailureReason } from "@/lib/api/login-log";
+import { notifyLoginFailure } from "@/lib/api/notify-login";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import type { ProfileRow } from "@/lib/types/database";
@@ -67,11 +68,19 @@ export async function POST(request: NextRequest) {
       resolvedUserId = byEmail?.id ?? null;
     }
     await recordLoginLog(admin, { userId: resolvedUserId, email, success: false, reason, ip, userAgent });
+    // Login gagal berulang pada satu akun → beri tahu Owner (anti credential stuffing).
+    notifyLoginFailure(admin, { userId: resolvedUserId, email, ip, userAgent, reason });
   };
 
   try {
     const supabase = createClient();
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    // `ip`/`user_agent` hanya dipakai adapter SQLite (kartu "Sesi aktif" di
+    // Pengaturan); Supabase mengabaikannya karena field tambahan.
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+      ...({ ip, user_agent: userAgent } as Record<string, unknown>),
+    } as { email: string; password: string });
 
     if (error || !data.user) {
       recordLoginFailure(ip);

@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server";
 
 import { loadKeyWithAccess, withAuth } from "@/lib/api/auth";
-import { getProfileUsername, recordAuditLog } from "@/lib/api/audit";
-import { formatCooldownMessage, getHwidResetQuota } from "@/lib/api/hwid-reset";
+import { listKeyDevices, resetKeyDevices } from "@/lib/api/device-reset";
+import { getHwidResetQuota, type HwidResetLimits } from "@/lib/api/hwid-reset";
+import { loadRuntime } from "@/lib/api/settings";
 import { jsonError, jsonOk } from "@/lib/utils/http";
 
 export const dynamic = "force-dynamic";
@@ -22,25 +23,24 @@ export async function GET(request: NextRequest, route: RouteParams) {
     const { key, allowed, error } = await loadKeyWithAccess(ctx, route.params.id);
     if (!allowed) return error as Response;
 
-    const { data, error: listError } = await ctx.admin
-      .from("device_logs")
-      .select("id, hardware_id, first_seen, last_seen")
-      .eq("key_id", key.id)
-      .order("first_seen", { ascending: true });
+    // Batas cooldown mengikuti konfigurasi Owner di Pengaturan.
+    const runtime = await loadRuntime(ctx.admin);
+    const limits: HwidResetLimits = {
+      limit: runtime.hwid.resetLimit,
+      windowHours: runtime.hwid.resetWindowHours,
+    };
 
-    if (listError) return jsonError(listError.message, "server_error", 500);
-
-    const devices = (data ?? []).map((device) => ({
-      id: device.id as string,
-      hardware_id: device.hardware_id as string,
-      first_seen: device.first_seen as string,
-      last_seen: device.last_seen as string,
-    }));
+    let devices: Awaited<ReturnType<typeof listKeyDevices>>;
+    try {
+      devices = await listKeyDevices(ctx.admin, key.id);
+    } catch (error) {
+      return jsonError((error as Error).message, "server_error", 500);
+    }
 
     // Kuota cooldown — untuk Owner selalu dilaporkan unlimited (remaining = limit).
     const cooldown = ctx.isOwner
       ? { used: 0, limit: 0, remaining: -1, window_start: null, next_reset_at: null, retry_after_seconds: null }
-      : await getHwidResetQuota(ctx.admin, key.id);
+      : await getHwidResetQuota(ctx.admin, key.id, new Date(), limits);
 
     return jsonOk({
       devices,
@@ -64,43 +64,32 @@ export async function DELETE(request: NextRequest, route: RouteParams) {
     const { key, allowed, error } = await loadKeyWithAccess(ctx, route.params.id);
     if (!allowed) return error as Response;
 
-    // --- Cek kuota cooldown (hanya untuk reseller). ---
-    if (!ctx.isOwner) {
-      const quota = await getHwidResetQuota(ctx.admin, key.id);
-      if (quota.remaining <= 0) {
-        return jsonError(formatCooldownMessage(quota), "hwid_reset_cooldown", 429, {
-          ...quota,
-        });
-      }
-    }
+    // --- Reset semua device (kuota & audit ditangani helper bersama). ---
+    const runtime = await loadRuntime(ctx.admin);
+    const limits: HwidResetLimits = {
+      limit: runtime.hwid.resetLimit,
+      windowHours: runtime.hwid.resetWindowHours,
+    };
 
-    const { data, error: deleteError } = await ctx.admin
-      .from("device_logs")
-      .delete()
-      .eq("key_id", key.id)
-      .select("id");
+    const result = await resetKeyDevices(
+      {
+        admin: ctx.admin,
+        userId: ctx.userId,
+        username: ctx.profile.username,
+        role: ctx.role,
+        isOwner: ctx.isOwner,
+      },
+      key,
+      { limits },
+    );
 
-    if (deleteError) return jsonError(deleteError.message, "server_error", 500);
+    if (!result.ok) return jsonError(result.error, result.code, result.status, result.details);
 
-    const removed = (data ?? []).length;
-
-    // Jejak audit: siapa yang reset semua HWID pada key ini.
-    const keyOwnerUsername = await getProfileUsername(ctx.admin, key.created_by);
-    await recordAuditLog(ctx.admin, {
-      actorId: ctx.userId,
-      actorUsername: ctx.profile.username,
-      actorRole: ctx.role,
-      action: "hwid_reset_all",
-      keyId: key.id,
-      keyValue: key.key_value,
-      keyOwnerId: key.created_by,
-      keyOwnerUsername,
-      detail: { removed, max_device: key.max_device },
+    return jsonOk({
+      reset: true,
+      removed: result.removed,
+      max_device: result.max_device,
+      cooldown: result.cooldown,
     });
-
-    // Kembalikan quota terbaru (untuk UI).
-    const cooldown = ctx.isOwner ? null : await getHwidResetQuota(ctx.admin, key.id);
-
-    return jsonOk({ reset: true, removed, max_device: key.max_device, cooldown });
   });
 }

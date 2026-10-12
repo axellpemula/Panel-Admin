@@ -8,7 +8,7 @@
  * - API yang bentuknya sama dengan Supabase Auth supaya kode panel tidak perlu bercabang.
  */
 
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { cookies } from "next/headers";
 
 import { getDb } from "@/lib/db/sqlite/client";
@@ -108,16 +108,28 @@ export function clearLegacyDemoCookie(): void {
   deleteCookie(LEGACY_DEMO_COOKIE);
 }
 
+export interface SessionMeta {
+  ip?: string | null;
+  userAgent?: string | null;
+}
+
 /** Buat sesi baru + set cookie. */
-export async function createSession(userId: string): Promise<string> {
+export async function createSession(userId: string, meta: SessionMeta = {}): Promise<string> {
   const db = await getDb();
   const token = randomBytes(32).toString("base64url");
   const now = new Date();
   const expires = new Date(now.getTime() + SESSION_TTL_SECONDS * 1000);
 
   db.prepare(
-    "INSERT INTO auth_sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-  ).run(token, userId, now.toISOString(), expires.toISOString());
+    "INSERT INTO auth_sessions (token, user_id, ip, user_agent, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
+  ).run(
+    token,
+    userId,
+    meta.ip ?? null,
+    meta.userAgent ? meta.userAgent.slice(0, 255) : null,
+    now.toISOString(),
+    expires.toISOString(),
+  );
 
   // Bersihkan sesi kedaluwarsa sekalian (murah, tabelnya kecil).
   db.prepare("DELETE FROM auth_sessions WHERE expires_at < ?").run(now.toISOString());
@@ -172,6 +184,7 @@ export async function destroySession(): Promise<void> {
 export async function signIn(
   email: string,
   password: string,
+  meta: SessionMeta = {},
 ): Promise<AuthResult<{ user: LocalUser }>> {
   const db = await getDb();
   const account = db
@@ -182,7 +195,7 @@ export async function signIn(
     return { data: { user: null as unknown as LocalUser }, error: { name: "AuthApiError", message: AUTH_ERROR_MESSAGES.invalidCredentials, status: 400 } };
   }
 
-  await createSession(account.id);
+  await createSession(account.id, meta);
   return {
     data: { user: { id: account.id, email: account.email, created_at: account.created_at } },
     error: null,
@@ -221,6 +234,7 @@ export async function createAccount(
 export async function updateAccount(
   userId: string,
   attributes: { email?: string; password?: string },
+  options: { keepSessionToken?: string | null } = {},
 ): Promise<AuthResult<{ user: LocalUser }>> {
   const db = await getDb();
   const account = db.prepare("SELECT * FROM auth_accounts WHERE id = ?").get(userId) as
@@ -255,8 +269,17 @@ export async function updateAccount(
 
   if (attributes.password) {
     passwordHash = hashPassword(attributes.password);
-    // Password berubah → semua sesi lama diputus.
-    db.prepare("DELETE FROM auth_sessions WHERE user_id = ?").run(userId);
+    // Password berubah → semua sesi lama diputus. Sesi yang sedang dipakai bisa
+    // dipertahankan (`keepSessionToken`) supaya user tidak ikut ter-logout saat
+    // mengganti password sendiri dari Pengaturan.
+    if (options.keepSessionToken) {
+      db.prepare("DELETE FROM auth_sessions WHERE user_id = ? AND token <> ?").run(
+        userId,
+        options.keepSessionToken,
+      );
+    } else {
+      db.prepare("DELETE FROM auth_sessions WHERE user_id = ?").run(userId);
+    }
   }
 
   db.prepare("UPDATE auth_accounts SET email = ?, password_hash = ?, updated_at = ? WHERE id = ?").run(
@@ -284,6 +307,85 @@ export async function deleteAccount(userId: string): Promise<AuthResult<{ delete
 export async function revokeSessions(userId: string): Promise<void> {
   const db = await getDb();
   db.prepare("DELETE FROM auth_sessions WHERE user_id = ?").run(userId);
+}
+
+/** Cek apakah password yang dikirim cocok dengan milik user (mode SQLite). */
+export async function verifyAccountPassword(userId: string, password: string): Promise<boolean> {
+  const db = await getDb();
+  const account = db
+    .prepare("SELECT password_hash FROM auth_accounts WHERE id = ?")
+    .get(userId) as { password_hash: string } | undefined;
+  if (!account) return false;
+  return verifyPassword(password, account.password_hash);
+}
+
+/** Token sesi dari cookie request ini (kalau ada). */
+export function currentSessionToken(): string | null {
+  return cookieStore()?.get(SESSION_COOKIE)?.value ?? null;
+}
+
+export interface ActiveSession {
+  /** Sidik jari token (bukan tokennya) untuk ditampilkan & dipakai revoke. */
+  id: string;
+  created_at: string;
+  expires_at: string;
+  ip: string | null;
+  user_agent: string | null;
+  /** True untuk sesi yang sedang dipakai request ini. */
+  current: boolean;
+}
+
+function fingerprint(token: string): string {
+  return createHash("sha256").update(token).digest("hex").slice(0, 16);
+}
+
+/** Daftar sesi aktif milik satu user (mode SQLite). */
+export async function listSessions(userId: string): Promise<ActiveSession[]> {
+  const db = await getDb();
+  const token = currentSessionToken();
+  const now = new Date().toISOString();
+
+  const rows = db
+    .prepare(
+      "SELECT token, ip, user_agent, created_at, expires_at FROM auth_sessions WHERE user_id = ? AND expires_at > ? ORDER BY created_at DESC",
+    )
+    .all(userId, now) as {
+    token: string;
+    ip: string | null;
+    user_agent: string | null;
+    created_at: string;
+    expires_at: string;
+  }[];
+
+  return rows.map((row) => ({
+    id: fingerprint(row.token),
+    created_at: row.created_at,
+    expires_at: row.expires_at,
+    ip: row.ip,
+    user_agent: row.user_agent,
+    current: Boolean(token && row.token === token),
+  }));
+}
+
+/** Putus semua sesi user KECUALI sesi request ini. Mengembalikan jumlah yang diputus. */
+export async function revokeOtherSessions(userId: string): Promise<number> {
+  const db = await getDb();
+  const token = currentSessionToken();
+  const before = db
+    .prepare("SELECT COUNT(*) AS total FROM auth_sessions WHERE user_id = ?")
+    .get(userId) as { total: number } | undefined;
+
+  if (token) {
+    db.prepare("DELETE FROM auth_sessions WHERE user_id = ? AND token <> ?").run(userId, token);
+  } else {
+    db.prepare("DELETE FROM auth_sessions WHERE user_id = ?").run(userId);
+  }
+
+  const after = db
+    .prepare("SELECT COUNT(*) AS total FROM auth_sessions WHERE user_id = ?")
+    .get(userId) as { total: number } | undefined;
+
+  return Math.max(0, Number(before?.total ?? 0) - Number(after?.total ?? 0));
 }
 
 /** Jumlah sesi aktif untuk satu user (dipakai uji otomatis). */

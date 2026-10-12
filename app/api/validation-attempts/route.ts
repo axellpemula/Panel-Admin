@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { withOwner, type AuthContext } from "@/lib/api/auth";
-import { RATE_LIMIT, VALIDATION_REASONS } from "@/lib/constants";
+import { loadRuntime } from "@/lib/api/settings";
+import { VALIDATION_REASONS } from "@/lib/constants";
 import { toCsv } from "@/lib/utils/csv";
 import { VALIDATION_REASON_LABEL, formatDateTime } from "@/lib/utils/format";
 import { errorMessage, jsonError, jsonOk } from "@/lib/utils/http";
@@ -21,10 +22,8 @@ const MAX_TREND_BUCKETS = 400;
 const AGGREGATE_FETCH_LIMIT = 50_000;
 /** Batas baris export CSV. */
 const CSV_EXPORT_LIMIT = 5_000;
-/** Jumlah baris maksimal pada tabel "IP mencurigakan" & "Key paling sering gagal". */
+/** Jumlah baris maksimal pada tabel analitik (IP/HWID/key). */
 const TOP_LIMIT = 10;
-/** IP dianggap mencurigakan kalau gagal total ≥ ini dalam rentang aktif. */
-const SUSPECT_FAILED_MIN = 10;
 
 const MONTHS_ID = [
   "Jan",
@@ -58,6 +57,11 @@ interface AttemptFilterValues {
  * (atau per hari kalau rentang > 48 jam), daftar IP mencurigakan, key yang paling
  * sering gagal, plus daftar percobaan terbaru (filter + pagination).
  *
+ * Analitik anti-abuse (bisa diatur di Pengaturan → Analitik anti-abuse):
+ * - `shared_hwids` — satu HWID dipakai banyak key berbeda (indikasi HWID dijual ulang),
+ * - `multi_ip_keys` — satu key dipakai dari banyak IP (indikasi key dibagi-bagikan),
+ * - `suspicious_ips` — IP dengan kegagalan menumpuk / percobaan key tidak dikenal.
+ *
  * Query params: from, to (YYYY-MM-DD, WIB), result (success|failed), reason,
  * ip, key, page, per_page, format=csv
  */
@@ -72,11 +76,14 @@ export async function GET(request: NextRequest) {
     const perPage = Math.min(200, Math.max(5, perPageRaw));
 
     try {
+      // Ambang analitik & masa retensi dibaca dari konfigurasi runtime (Pengaturan).
+      const runtime = await loadRuntime(ctx.admin);
+
       // --- Rentang tanggal (WIB) -------------------------------------------
       const now = new Date();
       const nowMs = now.getTime();
       // Data lebih tua dari retention tidak ada (dibersihkan cron) — jepit ke batas itu.
-      const retentionStartMs = nowMs - RATE_LIMIT.retentionDays * DAY_MS;
+      const retentionStartMs = nowMs - runtime.retention.attemptsDays * DAY_MS;
 
       let fromMs: number;
       const fromParam = params.get("from");
@@ -179,8 +186,14 @@ export async function GET(request: NextRequest) {
       const summary = summarize(rows);
       const hourly = toMs - fromMs <= HOURLY_TREND_MAX_MS;
       const trend = buildTrend(rows, fromMs, toMs, hourly);
-      const suspiciousIps = topSuspiciousIps(rows);
+      const suspiciousIps = topSuspiciousIps(
+        rows,
+        runtime.analytics.suspectFailedMin,
+        runtime.validate.bruteForceFailures,
+      );
       const failingKeys = topFailingKeys(rows);
+      const sharedHwids = sharedHardwareIds(rows, runtime.analytics.sharedHwidKeysMin);
+      const multiIpKeys = multiIpKeyUsage(rows, runtime.analytics.multiIpKeysMin);
 
       const items = (data ?? []).map(normalizeAttempt);
       const total = count ?? items.length;
@@ -195,6 +208,15 @@ export async function GET(request: NextRequest) {
         trend,
         suspicious_ips: suspiciousIps,
         top_failing_keys: failingKeys,
+        shared_hwids: sharedHwids,
+        multi_ip_keys: multiIpKeys,
+        thresholds: {
+          suspect_failed_min: runtime.analytics.suspectFailedMin,
+          brute_force_failures: runtime.validate.bruteForceFailures,
+          shared_hwid_keys_min: runtime.analytics.sharedHwidKeysMin,
+          multi_ip_keys_min: runtime.analytics.multiIpKeysMin,
+          retention_days: runtime.retention.attemptsDays,
+        },
         items,
         total,
         page,
@@ -264,6 +286,7 @@ function toJakartaDateKey(date: Date): string {
 type AttemptRow = {
   ip: string;
   key_value: string | null;
+  hardware_id?: string | null;
   success: boolean;
   reason: string | null;
   created_at: string;
@@ -353,7 +376,7 @@ function jakartaBucketLabel(bucketMs: number, hourly: boolean): string {
  * IP mencurigakan: diurutkan dari yang paling banyak gagal. `suspect` = indikasi
  * bruteforce (invalid_key ≥ ambang rate limit) atau akumulasi gagal tinggi.
  */
-function topSuspiciousIps(rows: AttemptRow[]) {
+function topSuspiciousIps(rows: AttemptRow[], suspectMin: number, bruteForceMin: number) {
   const map = new Map<
     string,
     {
@@ -397,8 +420,7 @@ function topSuspiciousIps(rows: AttemptRow[]) {
       distinct_keys: agg.keys.size,
       first_seen: agg.firstSeen,
       last_seen: agg.lastSeen,
-      suspect:
-        agg.failed >= SUSPECT_FAILED_MIN || agg.invalidKey >= RATE_LIMIT.bruteForceFailures,
+      suspect: agg.failed >= suspectMin || agg.invalidKey >= bruteForceMin,
     }))
     .sort((a, b) => b.failed - a.failed || b.invalid_key - a.invalid_key || b.total - a.total)
     .slice(0, TOP_LIMIT);
@@ -456,6 +478,133 @@ function topFailingKeys(rows: AttemptRow[]) {
     }))
     .filter((item) => item.failed > 0)
     .sort((a, b) => b.failed - a.failed || b.total - a.total)
+    .slice(0, TOP_LIMIT);
+}
+
+/**
+ * Deteksi **HWID dipakai banyak key** (indikasi HWID dijual ulang / key dishare
+ * ke banyak orang). Satu baris per hardware_id dengan ≥ 2 key berbeda; yang
+ * melewati ambang `sharedHwidKeysMin` ditandai `suspect`.
+ */
+function sharedHardwareIds(rows: AttemptRow[], minKeys: number) {
+  const map = new Map<
+    string,
+    {
+      keys: Set<string>;
+      ips: Set<string>;
+      total: number;
+      succeeded: number;
+      failed: number;
+      firstSeen: string;
+      lastSeen: string;
+    }
+  >();
+
+  rows.forEach((row) => {
+    const hardwareId = (row.hardware_id ?? "").trim();
+    if (!hardwareId) return;
+
+    let agg = map.get(hardwareId);
+    if (!agg) {
+      agg = {
+        keys: new Set<string>(),
+        ips: new Set<string>(),
+        total: 0,
+        succeeded: 0,
+        failed: 0,
+        firstSeen: row.created_at,
+        lastSeen: row.created_at,
+      };
+      map.set(hardwareId, agg);
+    }
+
+    agg.total += 1;
+    if (row.success) agg.succeeded += 1;
+    else agg.failed += 1;
+    if (row.key_value) agg.keys.add(row.key_value);
+    if (row.ip) agg.ips.add(row.ip);
+    if (row.created_at < agg.firstSeen) agg.firstSeen = row.created_at;
+    if (row.created_at > agg.lastSeen) agg.lastSeen = row.created_at;
+  });
+
+  return [...map.entries()]
+    .filter(([, agg]) => agg.keys.size >= 2)
+    .map(([hardwareId, agg]) => ({
+      hardware_id: hardwareId,
+      distinct_keys: agg.keys.size,
+      distinct_ips: agg.ips.size,
+      total: agg.total,
+      succeeded: agg.succeeded,
+      failed: agg.failed,
+      // Contoh key-nya supaya Owner bisa langsung memeriksa.
+      keys: [...agg.keys].slice(0, 5),
+      first_seen: agg.firstSeen,
+      last_seen: agg.lastSeen,
+      suspect: agg.keys.size >= minKeys,
+    }))
+    .sort((a, b) => b.distinct_keys - a.distinct_keys || b.total - a.total)
+    .slice(0, TOP_LIMIT);
+}
+
+/**
+ * Deteksi **satu key dipakai dari banyak IP** (indikasi key dibagi-bagikan atau
+ * dijual ulang ke banyak pengguna). Ambang: `multiIpKeysMin` IP berbeda.
+ */
+function multiIpKeyUsage(rows: AttemptRow[], minIps: number) {
+  const map = new Map<
+    string,
+    {
+      ips: Set<string>;
+      total: number;
+      succeeded: number;
+      failed: number;
+      reasons: Map<string, number>;
+      lastSeen: string;
+    }
+  >();
+
+  rows.forEach((row) => {
+    const keyValue = (row.key_value ?? "").trim();
+    if (!keyValue) return;
+
+    let agg = map.get(keyValue);
+    if (!agg) {
+      agg = {
+        ips: new Set<string>(),
+        total: 0,
+        succeeded: 0,
+        failed: 0,
+        reasons: new Map<string, number>(),
+        lastSeen: row.created_at,
+      };
+      map.set(keyValue, agg);
+    }
+
+    agg.total += 1;
+    if (row.success) agg.succeeded += 1;
+    else {
+      agg.failed += 1;
+      const reason = row.reason ?? "tanpa alasan";
+      agg.reasons.set(reason, (agg.reasons.get(reason) ?? 0) + 1);
+    }
+    if (row.ip) agg.ips.add(row.ip);
+    if (row.created_at > agg.lastSeen) agg.lastSeen = row.created_at;
+  });
+
+  return [...map.entries()]
+    .filter(([, agg]) => agg.ips.size >= 2)
+    .map(([keyValue, agg]) => ({
+      key_value: keyValue,
+      distinct_ips: agg.ips.size,
+      total: agg.total,
+      succeeded: agg.succeeded,
+      failed: agg.failed,
+      ips: [...agg.ips].slice(0, 5),
+      top_reason: [...agg.reasons.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null,
+      last_seen: agg.lastSeen,
+      suspect: agg.ips.size >= minIps,
+    }))
+    .sort((a, b) => b.distinct_ips - a.distinct_ips || b.total - a.total)
     .slice(0, TOP_LIMIT);
 }
 

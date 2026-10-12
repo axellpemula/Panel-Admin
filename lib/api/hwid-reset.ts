@@ -20,6 +20,9 @@ import { HWID_RESET } from "@/lib/constants";
  *     (actor_role = 'reseller') dan sistem (auto-ban tidak memicu reset).
  *   - Owner tidak terkena limit (dicek di caller, tidak di sini), supaya
  *     Owner tetap bisa bantu support reseller saat darurat.
+ *   - Nilai limit/window bisa diubah Owner dari Pengaturan (lihat
+ *     `lib/api/settings.ts`); kalau tidak diberikan, dipakai default
+ *     `HWID_RESET` di lib/constants.ts.
  */
 export interface ResetQuota {
   /** Jumlah reset yang sudah dilakukan dalam window sekarang. */
@@ -34,14 +37,28 @@ export interface ResetQuota {
   next_reset_at: string | null;
   /** Detik sampai kuota bertambah 1 (null kalau kuota masih penuh). */
   retry_after_seconds: number | null;
+  /** Panjang window cooldown (jam) — dipakai UI supaya teksnya ikut konfigurasi. */
+  window_hours: number;
 }
+
+/** Batas cooldown yang berlaku (dari Pengaturan, default `HWID_RESET`). */
+export interface HwidResetLimits {
+  limit: number;
+  windowHours: number;
+}
+
+export const DEFAULT_HWID_RESET_LIMITS: HwidResetLimits = {
+  limit: HWID_RESET.limit,
+  windowHours: HWID_RESET.windowHours,
+};
 
 export async function getHwidResetQuota(
   admin: SupabaseClient<Database>,
   keyId: string,
   now: Date = new Date(),
+  limits: HwidResetLimits = DEFAULT_HWID_RESET_LIMITS,
 ): Promise<ResetQuota> {
-  const windowMs = HWID_RESET.windowHours * 60 * 60 * 1000;
+  const windowMs = limits.windowHours * 60 * 60 * 1000;
   const windowStart = new Date(now.getTime() - windowMs).toISOString();
 
   // Hitung hanya reset yang dilakukan oleh reseller (actor_role = 'reseller').
@@ -62,11 +79,12 @@ export async function getHwidResetQuota(
     console.warn("[hwid-reset] gagal membaca audit_logs:", error.message);
     return {
       used: 0,
-      limit: HWID_RESET.limit,
-      remaining: HWID_RESET.limit,
+      limit: limits.limit,
+      remaining: limits.limit,
       window_start: windowStart,
       next_reset_at: null,
       retry_after_seconds: null,
+      window_hours: limits.windowHours,
     };
   }
 
@@ -76,13 +94,13 @@ export async function getHwidResetQuota(
     .sort();
 
   const used = timestamps.length;
-  const remaining = Math.max(0, HWID_RESET.limit - used);
+  const remaining = Math.max(0, limits.limit - used);
 
   // Kapan reset tertua akan keluar dari window? Kalau kuota sudah habis, user
   // harus menunggu sampai itu saatnya (paling cepat satu kuota kembali).
   let nextResetAt: string | null = null;
   let retryAfterSeconds: number | null = null;
-  if (used >= HWID_RESET.limit && timestamps.length > 0) {
+  if (used >= limits.limit && timestamps.length > 0) {
     const oldest = new Date(timestamps[0]);
     nextResetAt = new Date(oldest.getTime() + windowMs).toISOString();
     retryAfterSeconds = Math.max(0, Math.ceil((new Date(nextResetAt).getTime() - now.getTime()) / 1000));
@@ -90,11 +108,12 @@ export async function getHwidResetQuota(
 
   return {
     used,
-    limit: HWID_RESET.limit,
+    limit: limits.limit,
     remaining,
     window_start: windowStart,
     next_reset_at: nextResetAt,
     retry_after_seconds: retryAfterSeconds,
+    window_hours: limits.windowHours,
   };
 }
 
@@ -102,7 +121,7 @@ export async function getHwidResetQuota(
  * Format pesan error cooldown untuk user.
  */
 export function formatCooldownMessage(quota: ResetQuota): string {
-  const hours = HWID_RESET.windowHours;
+  const hours = quota.window_hours ?? HWID_RESET.windowHours;
   if (!quota.next_reset_at || quota.retry_after_seconds === null) {
     return `Kuota reset HWID untuk key ini sudah habis (maks ${quota.limit}x per ${hours} jam)`;
   }

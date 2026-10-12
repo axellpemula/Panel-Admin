@@ -1,9 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { AuthContext } from "@/lib/api/auth";
 import { recordCreditLog, spendCredit } from "@/lib/api/credit";
+import { notifyLowCredit } from "@/lib/api/low-credit";
+import { loadRuntime } from "@/lib/api/settings";
 import { LIMITS } from "@/lib/constants";
-import type { Database, DurationPresetRow, ToolTypeRow, ToolVersionRow } from "@/lib/types/database";
+import type {
+  Database,
+  DurationPresetRow,
+  ProfileRow,
+  ToolTypeRow,
+  ToolVersionRow,
+} from "@/lib/types/database";
 import { generateUniqueKeys } from "@/lib/utils/crypto";
 import { creditCostBreakdown, generateCreditCost } from "@/lib/utils/pricing";
 
@@ -11,6 +18,18 @@ import { creditCostBreakdown, generateCreditCost } from "@/lib/utils/pricing";
  * Logika inti generate key. Semua validasi bisnis ada di sini supaya
  * /api/keys/generate tetap tipis dan mudah diaudit.
  */
+
+/**
+ * Konteks minimal yang dibutuhkan generate. `AuthContext` (panel) memenuhinya
+ * secara struktural — begitu pula konteks API key (`/api/v1`) dan bot Telegram,
+ * sehingga ketiga jalur memakai logika harga & validasi yang sama.
+ */
+export interface GenerateContext {
+  admin: SupabaseClient<Database>;
+  userId: string;
+  profile: ProfileRow;
+  isOwner: boolean;
+}
 
 export interface GenerateInput {
   toolTypeId: string;
@@ -88,6 +107,7 @@ function computeExpiry(days: number | null): string | null {
  * Generate key, simpan ke DB, dan (untuk reseller) potong credit.
  *
  * Harga: `harga_preset × quantity × max_device` (1 unit = 1 key × 1 device).
+ * Batas quantity & max device dibaca dari konfigurasi runtime (Pengaturan).
  * Menambah max device sama seperti menambah quantity — dua-duanya menaikkan biaya.
  *
  * Urutan aman untuk credit:
@@ -97,10 +117,12 @@ function computeExpiry(days: number | null): string | null {
  * 4. Kalau potong credit gagal (race), key yang baru dibuat dihapus lagi.
  */
 export async function generateKeys(
-  ctx: AuthContext,
+  ctx: GenerateContext,
   input: GenerateInput,
 ): Promise<GenerateResult> {
   const admin = ctx.admin;
+  // Batas & perilaku mengikuti konfigurasi runtime (Pengaturan → Batas & Sistem).
+  const runtime = await loadRuntime(admin);
 
   // --- Validasi tool type ---
   const { data: tool, error: toolError } = await admin
@@ -165,13 +187,15 @@ export async function generateKeys(
   }
 
   // --- Kuantitas ---
-  const maxQuantity = ctx.isOwner ? LIMITS.quantityOwnerMax : LIMITS.quantityResellerMax;
+  const maxQuantity = ctx.isOwner
+    ? runtime.keys.quantityOwnerMax
+    : runtime.keys.quantityResellerMax;
   if (input.quantity < 1 || input.quantity > maxQuantity) {
     throw new GenerateError(`Quantity harus antara 1 dan ${maxQuantity}`, "validation_error");
   }
-  if (input.maxDevice < LIMITS.maxDeviceMin || input.maxDevice > LIMITS.maxDeviceMax) {
+  if (input.maxDevice < runtime.keys.maxDeviceMin || input.maxDevice > runtime.keys.maxDeviceMax) {
     throw new GenerateError(
-      `Max device harus antara ${LIMITS.maxDeviceMin} dan ${LIMITS.maxDeviceMax}`,
+      `Max device harus antara ${runtime.keys.maxDeviceMin} dan ${runtime.keys.maxDeviceMax}`,
       "validation_error",
     );
   }
@@ -287,6 +311,18 @@ export async function generateKeys(
         },
       );
     }
+  }
+
+  // Saldo reseller melewati ambang tipis → beri tahu Owner (dan reseller-nya).
+  if (!ctx.isOwner && totalCost > 0 && balanceAfter >= 0) {
+    notifyLowCredit(admin, {
+      userId: ctx.userId,
+      username: ctx.profile.username,
+      balanceBefore: profileCredit,
+      balanceAfter,
+      reason: `generate ${inserted.length} key (${tool.name} ${version.name})`,
+      runtime,
+    });
   }
 
   const noteText =

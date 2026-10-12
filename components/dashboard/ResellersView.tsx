@@ -1,9 +1,19 @@
 "use client";
 
-import { KeyRound, Pencil, Plus, ShieldOff, ShieldCheck, Trash2, Wallet } from "lucide-react";
+import {
+  KeyRound,
+  Pencil,
+  Plus,
+  ShieldOff,
+  ShieldCheck,
+  SlidersHorizontal,
+  Trash2,
+  Wallet,
+} from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import { CreditAdjustModal } from "@/components/dashboard/CreditAdjustModal";
 import { ActiveBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -30,6 +40,7 @@ export function ResellersView() {
   const [topupTarget, setTopupTarget] = useState<TopReseller | null>(null);
   const [topupAmount, setTopupAmount] = useState("10");
   const [topupNote, setTopupNote] = useState("");
+  const [adjustTarget, setAdjustTarget] = useState<TopReseller | null>(null);
 
   const [passwordTarget, setPasswordTarget] = useState<TopReseller | null>(null);
   const [newPassword, setNewPassword] = useState("");
@@ -269,6 +280,14 @@ export function ResellersView() {
                         >
                           Topup
                         </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => setAdjustTarget(reseller)}
+                          icon={<SlidersHorizontal size={14} strokeWidth={1.5} />}
+                          aria-label={`Sesuaikan credit ${reseller.username}`}
+                        >
+                          Sesuaikan
+                        </Button>
                         <Link href={`/resellers/${reseller.id}`} className="inline-flex">
                           <Button size="sm" icon={<KeyRound size={14} strokeWidth={1.5} />}>
                             Detail
@@ -422,6 +441,15 @@ export function ResellersView() {
           </Field>
         </div>
       </Modal>
+
+      {/* Penyesuaian credit (tambah / kurang + alasan wajib) */}
+      <CreditAdjustModal
+        target={adjustTarget}
+        onClose={() => setAdjustTarget(null)}
+        onDone={() => {
+          void load();
+        }}
+      />
 
       {/* Reset password */}
       <Modal
