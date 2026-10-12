@@ -5,6 +5,7 @@ import { getProfileUsername, recordAuditLog } from "@/lib/api/audit";
 import { addCredit, recordCreditLog, spendCredit } from "@/lib/api/credit";
 import { fetchDeviceCounts, getKeyDetail, refreshExpiredKeys } from "@/lib/api/keys";
 import { notifyLowCredit } from "@/lib/api/low-credit";
+import { notifyResellerInBackground } from "@/lib/api/notify-reseller";
 import { loadRuntime } from "@/lib/api/settings";
 import { LIMITS } from "@/lib/constants";
 import type { DurationPresetRow, KeyRow } from "@/lib/types/database";

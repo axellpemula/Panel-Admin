@@ -956,6 +956,97 @@ async function main() {
         message: { text: `/start ${secondCode.body?.data?.code}`, chat: { id: chatId }, from: { id: 555 } },
       }),
     });
+    // ------------------------------------------- Bot v2: tombol inline & notifikasi
+    const botCallback = async (data, targetChat = chatId) =>
+      fetch(`${APP_URL}/api/telegram/webhook`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-telegram-bot-api-secret-token": telegramSecret },
+        body: JSON.stringify({
+          callback_query: {
+            id: String(Date.now() % 1_000_000_000),
+            data,
+            message: { chat: { id: targetChat } },
+            from: { id: 555 },
+          },
+        }),
+      });
+
+    for (const data of ["menu:saldo", "menu:preset", "menu:keys", "keys:all:1", "wizard:start"]) {
+      const response = await botCallback(data);
+      check(`tombol bot ${data} diproses (200)`, response.status === 200);
+    }
+
+    // Wizard generate sampai eksekusi (kegagalan kirim balasan tetap aman).
+    db.prepare("UPDATE profiles SET credit = credit + 50 WHERE id = ?").run(andiRow.id);
+    const keysBeforeWizard = db.prepare("SELECT COUNT(*) AS n FROM keys WHERE created_by = ?").get(andiRow.id).n;
+    for (const data of ["gentool:1", "genver:1:1", "genpre:1:1:1", "genqty:1:1:1:1", "gendev:1:1:1:1:1"]) {
+      const response = await botCallback(data);
+      check(`wizard ${data} diproses (200)`, response.status === 200);
+    }
+    const goGenerate = await botCallback("gen:go:1:1:1:1:1");
+    const keysAfterWizard = db.prepare("SELECT COUNT(*) AS n FROM keys WHERE created_by = ?").get(andiRow.id).n;
+    check(
+      "wizard gen:go membuat 1 key untuk reseller",
+      goGenerate.status === 200 && keysAfterWizard === keysBeforeWizard + 1,
+      `status=${goGenerate.status}, key ${keysBeforeWizard}->${keysAfterWizard}`,
+    );
+    check(
+      "kegagalan kirim balasan bot tercatat (event bot_reply)",
+      db.prepare("SELECT COUNT(*) AS n FROM notification_logs WHERE event = 'bot_reply' AND success = 0").get().n >= 1,
+    );
+
+    // Reset HWID via tombol: konfirmasi lalu eksekusi.
+    const andiKey = db
+      .prepare("SELECT id, key_value FROM keys WHERE created_by = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1")
+      .get(andiRow.id);
+    const rstConfirm = await botCallback(`rstc:${andiKey.key_value}:all`);
+    check("tombol konfirmasi reset diproses (200)", rstConfirm.status === 200);
+    const resetBefore = db.prepare("SELECT COUNT(*) AS n FROM audit_logs WHERE action LIKE 'hwid_reset%'").get().n;
+    const rstGo = await botCallback(`rstgo:${andiKey.key_value}:all`);
+    const resetAfter = db.prepare("SELECT COUNT(*) AS n FROM audit_logs WHERE action LIKE 'hwid_reset%'").get().n;
+    check(
+      "reset semua HWID via tombol tercatat di audit log",
+      rstGo.status === 200 && resetAfter === resetBefore + 1,
+      `status=${rstGo.status}, audit ${resetBefore}->${resetAfter}`,
+    );
+
+    const unknownCb = await botCallback("apa:itu");
+    check("callback tak dikenal dijawab aman (200)", unknownCb.status === 200);
+    const unlinkedCb = await botCallback("menu:saldo", 111222333);
+    check("callback dari chat belum tertaut aman (200)", unlinkedCb.status === 200);
+
+    // Notifikasi reseller: ban / unban key oleh Owner.
+    // Notifikasi dikirim fire-and-forget (bisa menunggu timeout jaringan) — pakai polling.
+    const waitForNotificationLog = async (event, tries = 40) => {
+      for (let attempt = 0; attempt < tries; attempt += 1) {
+        const row = db.prepare("SELECT COUNT(*) AS n FROM notification_logs WHERE event = ?").get(event);
+        if (row.n >= 1) return true;
+        await sleep(250);
+      }
+      return false;
+    };
+
+    // Pastikan saklar notifikasi global + notifikasi reseller aktif.
+    await owner.put("/api/settings", { notify: { enabled: true, notifyReseller: true } });
+
+    const banForNotif = await owner.put(`/api/keys/${andiKey.id}/ban`, { reason: "manual", note: "uji notifikasi" });
+    check(
+      "ban key oleh owner memicu notifikasi reseller",
+      banForNotif.status === 200 && (await waitForNotificationLog("reseller_key_banned")),
+    );
+    const unbanForNotif = await owner.put(`/api/keys/${andiKey.id}/unban`);
+    check(
+      "unban key oleh owner memicu notifikasi reseller",
+      unbanForNotif.status === 200 && (await waitForNotificationLog("reseller_key_unbanned")),
+    );
+
+    // Notifikasi reseller: topup credit.
+    const topupForNotif = await owner.put(`/api/resellers/${andiRow.id}`, { action: "topup", amount: 5 });
+    check(
+      "topup credit memicu notifikasi reseller",
+      topupForNotif.status === 200 && (await waitForNotificationLog("reseller_credit_topup")),
+    );
+
     const unlink = await andi.delete("/api/telegram/link");
     check("lepas tautan Telegram dari panel berhasil", unlink.status === 200 && unlink.body?.data?.unlinked === true);
     check(

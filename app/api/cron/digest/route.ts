@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 import { sendNotification } from "@/lib/api/notify";
+import { notifyResellerEvent } from "@/lib/api/notify-reseller";
 import { loadRuntime, loadTelegram } from "@/lib/api/settings";
 import { cronSecret, dbMode } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -157,6 +158,65 @@ export async function GET(request: NextRequest) {
     },
   });
 
+  // Pengingat personal: key milik reseller yang expiring <= 3 hari lagi.
+  // Sekali per reseller per hari (dedupe harian), hanya kalau notifikasi reseller aktif.
+  let expiringNotified = 0;
+  const EXPIRING_DAYS = 3;
+  const expiringFrom = now.toISOString();
+  const expiringTo = new Date(now.getTime() + EXPIRING_DAYS * 86_400_000).toISOString();
+  try {
+    const expiringResult = await admin
+      .from("keys")
+      .select("key_value, expired_at, created_by")
+      .eq("status", "active")
+      .gte("expired_at", expiringFrom)
+      .lte("expired_at", expiringTo);
+    const expiringKeys = (expiringResult.data ?? []) as {
+      key_value: string;
+      expired_at: string | null;
+      created_by: string | null;
+    }[];
+
+    if (expiringKeys.length > 0) {
+      const { data: links } = await admin.from("telegram_links").select("user_id, chat_id");
+      const linkedUserIds = new Set(
+        ((links ?? []) as { user_id: string; chat_id: string }[]).map((row) => row.user_id),
+      );
+
+      const byOwner = new Map<string, { key_value: string; expired_at: string | null }[]>();
+      expiringKeys.forEach((row) => {
+        if (!row.created_by || !linkedUserIds.has(row.created_by)) return;
+        const list = byOwner.get(row.created_by) ?? [];
+        list.push({ key_value: row.key_value, expired_at: row.expired_at });
+        byOwner.set(row.created_by, list);
+      });
+
+      const dateKey = jakartaDateKey(now);
+      for (const [userId, list] of byOwner) {
+        await notifyResellerEvent(admin, {
+          userId,
+          event: "expiring_digest",
+          title: "Pengingat key expiring",
+          lines: [
+            `${list.length} key kamu akan expired dalam <= ${EXPIRING_DAYS} hari:`,
+            "",
+            ...list
+              .slice(0, 10)
+              .map((row) => `• ${row.key_value} — ${row.expired_at ? row.expired_at.slice(0, 10) : "?"}`),
+            list.length > 10 ? `…dan ${list.length - 10} lainnya.` : "",
+            "",
+            "Perpanjang dari panel → Key List, atau minta Owner.",
+          ].filter(Boolean),
+          dedupeKey: `expiring_digest:${userId}:${dateKey}`,
+          detail: { count: list.length, keys: list.slice(0, 10).map((row) => row.key_value) },
+        });
+        expiringNotified += 1;
+      }
+    }
+  } catch (error) {
+    console.warn("[cron] pengingat expiring gagal:", (error as Error)?.message ?? error);
+  }
+
   return NextResponse.json({
     ok: true,
     mode: dbMode(),
@@ -173,6 +233,7 @@ export async function GET(request: NextRequest) {
       topups,
       adjustments,
       low_credit_resellers: lowCreditResellers,
+      expiring_resellers_notified: expiringNotified,
     },
   });
 }

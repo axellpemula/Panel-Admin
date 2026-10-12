@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { loadKeyWithAccess, withAuth } from "@/lib/api/auth";
 import { getProfileUsername, recordAuditLog } from "@/lib/api/audit";
 import { getKeyDetail } from "@/lib/api/keys";
+import { notifyResellerInBackground } from "@/lib/api/notify-reseller";
 import { jsonError, jsonOk } from "@/lib/utils/http";
 
 export const dynamic = "force-dynamic";
@@ -62,6 +63,20 @@ export async function PUT(request: NextRequest, route: RouteParams) {
         new_status: nextStatus,
       },
     });
+
+    // Kabari pemilik key (kalau bukan dia sendiri yang meng-unban).
+    if (key.created_by && key.created_by !== ctx.userId) {
+      notifyResellerInBackground(ctx.admin, {
+        userId: key.created_by,
+        event: "key_unbanned",
+        title: "Key aktif kembali",
+        lines: [
+          `Key ${key.key_value} sudah di-unban oleh ${ctx.profile.username}.`,
+          `Status sekarang: ${nextStatus}.`,
+        ],
+        detail: { key_id: key.id, key_value: key.key_value, new_status: nextStatus },
+      });
+    }
 
     const detail = await getKeyDetail(ctx.admin, key.id);
     return jsonOk({ key: detail });

@@ -72,24 +72,53 @@ export async function getTelegramBot(
   return { ok: true, username: result.result.username, id: result.result.id };
 }
 
-/** Kirim pesan teks biasa (tanpa parse_mode supaya isi user tidak merusak format). */
+/** Kirim pesan teks. `parseMode: "HTML"` untuk format (isi user wajib di-escape). */
 export async function sendTelegramMessage(
   token: string,
   chatId: string | number,
   text: string,
-  options?: { timeoutMs?: number; disablePreview?: boolean },
+  options?: {
+    timeoutMs?: number;
+    disablePreview?: boolean;
+    parseMode?: "HTML";
+    /** Baris tombol inline — tiap item { text, callback_data }. */
+    keyboard?: TelegramInlineButton[][];
+  },
 ): Promise<TelegramResult<{ message_id: number }>> {
   const body = text.length > MESSAGE_MAX ? `${text.slice(0, MESSAGE_MAX - 20)}\n…(dipotong)` : text;
-  return telegramApi<{ message_id: number }>(
-    token,
-    "sendMessage",
-    {
-      chat_id: chatId,
-      text: body,
-      disable_web_page_preview: options?.disablePreview ?? true,
-    },
-    options?.timeoutMs,
-  );
+  const payload: Record<string, unknown> = {
+    chat_id: chatId,
+    text: body,
+    disable_web_page_preview: options?.disablePreview ?? true,
+  };
+  if (options?.parseMode) payload.parse_mode = options.parseMode;
+  if (options?.keyboard && options.keyboard.length > 0) {
+    payload.reply_markup = { inline_keyboard: options.keyboard };
+  }
+  return telegramApi<{ message_id: number }>(token, "sendMessage", payload, options?.timeoutMs);
+}
+
+/** Satu tombol inline (callback). */
+export interface TelegramInlineButton {
+  text: string;
+  callback_data: string;
+}
+
+/** Tutup spinner + (opsional) tampilkan toast kecil di atas tombol. */
+export async function answerTelegramCallback(
+  token: string,
+  callbackQueryId: string,
+  text?: string,
+): Promise<void> {
+  await telegramApi(token, "answerCallbackQuery", {
+    callback_query_id: callbackQueryId,
+    ...(text ? { text, show_alert: false } : {}),
+  });
+}
+
+/** Escape isi bertipe user (username, HWID, note) untuk pesan parse_mode HTML. */
+export function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 /** Pasang webhook (secret_token dikirim Telegram di header X-Telegram-Bot-Api-Secret-Token). */
@@ -101,7 +130,8 @@ export async function setTelegramWebhook(
   return telegramApi<boolean>(token, "setWebhook", {
     url,
     secret_token: secretToken,
-    allowed_updates: ["message"],
+    // "callback_query" untuk tombol inline bot (/menu, wizard generate, pagination).
+    allowed_updates: ["message", "callback_query"],
     drop_pending_updates: true,
   });
 }
