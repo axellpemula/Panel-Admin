@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { loadKeyWithAccess, withAuth } from "@/lib/api/auth";
 import { getProfileUsername, recordAuditLog } from "@/lib/api/audit";
 import { getKeyDetail } from "@/lib/api/keys";
+import { notifyResellerInBackground } from "@/lib/api/notify-reseller";
 import { LIMITS, MANUAL_BAN_REASONS } from "@/lib/constants";
 import type { BanReason } from "@/lib/types/database";
 import { jsonError, jsonOk } from "@/lib/utils/http";
@@ -85,6 +86,21 @@ export async function PUT(request: NextRequest, route: RouteParams) {
       note,
       detail: { previous_status: previousStatus },
     });
+
+    // Kabari pemilik key (kalau bukan dia sendiri yang memblokir).
+    if (key.created_by && key.created_by !== ctx.userId) {
+      notifyResellerInBackground(ctx.admin, {
+        userId: key.created_by,
+        event: "key_banned",
+        title: "Key diblokir",
+        lines: [
+          `Key ${key.key_value} diblokir oleh ${ctx.profile.username}.`,
+          `Alasan: ${reason}${note ? ` — ${note}` : ""}`,
+          "Hubungi Owner kalau ini salah.",
+        ],
+        detail: { key_id: key.id, key_value: key.key_value, reason, note },
+      });
+    }
 
     const detail = await getKeyDetail(ctx.admin, key.id);
     return jsonOk({ key: detail });

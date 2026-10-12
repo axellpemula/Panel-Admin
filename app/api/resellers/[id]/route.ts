@@ -5,6 +5,7 @@ import { recordActivity } from "@/lib/api/activity";
 import { isUuid, withOwner } from "@/lib/api/auth";
 import { addCredit, spendCredit } from "@/lib/api/credit";
 import { notifyLowCredit } from "@/lib/api/low-credit";
+import { notifyResellerInBackground } from "@/lib/api/notify-reseller";
 import { loadRuntime } from "@/lib/api/settings";
 import { recentActivity, resellerStats, resellerSummary } from "@/lib/api/stats";
 import type { ProfileRow } from "@/lib/types/database";
@@ -143,6 +144,18 @@ export async function PUT(request: NextRequest, route: RouteParams) {
         detail: { amount, balance_after: balance, note },
       });
 
+      notifyResellerInBackground(ctx.admin, {
+        userId: id,
+        event: "credit_topup",
+        title: "Credit masuk",
+        lines: [
+          `Saldo +${amount} credit (topup oleh ${ctx.profile.username}).`,
+          `Sisa saldo: ${balance} credit.`,
+          note !== `Topup oleh ${ctx.profile.username}` ? `Catatan: ${note}` : "",
+        ].filter(Boolean),
+        detail: { amount, balance_after: balance },
+      });
+
       notifyLowCredit(ctx.admin, {
         userId: id,
         username: profile.username,
@@ -220,6 +233,18 @@ export async function PUT(request: NextRequest, route: RouteParams) {
           reason,
           note: extraNote,
         },
+      });
+
+      notifyResellerInBackground(ctx.admin, {
+        userId: id,
+        event: "credit_adjust",
+        title: amount >= 0 ? "Penyesuaian credit" : "Saldo dikurangi",
+        lines: [
+          `Saldo ${amount >= 0 ? "+" : ""}${amount} credit (penyesuaian oleh ${ctx.profile.username}).`,
+          `Sisa saldo: ${balance} credit.`,
+          `Alasan: ${reason}${extraNote ? ` — ${extraNote}` : ""}`,
+        ],
+        detail: { amount, balance_before: before, balance_after: balance },
       });
 
       if (amount < 0) {

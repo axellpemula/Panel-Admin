@@ -140,45 +140,61 @@ export function ApiKeysCard({
       ) : items.length === 0 ? (
         <EmptyState message="Belum ada API key. Buat satu untuk integrasi otomatis (cek saldo, generate key, reset HWID)." />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="table-base">
-            <thead>
-              <tr>
-                <th>Nama</th>
-                <th className="w-[180px]">Token</th>
-                {isOwner ? <th className="w-[140px]">Pemilik</th> : null}
-                <th className="w-[150px]">Terakhir dipakai</th>
-                <th className="w-[110px]">Request</th>
-                <th className="w-[110px]">Status</th>
-                <th className="w-[90px]" />
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[820px] text-body">
+            <thead className="sticky top-0 bg-surface">
+              <tr className="border-b border-border text-left text-label text-muted">
+                <th scope="col" className="px-3 py-2 font-normal">
+                  Nama
+                </th>
+                <th scope="col" className="whitespace-nowrap px-3 py-2 font-normal">
+                  Token
+                </th>
+                {isOwner ? (
+                  <th scope="col" className="whitespace-nowrap px-3 py-2 font-normal">
+                    Pemilik
+                  </th>
+                ) : null}
+                <th scope="col" className="whitespace-nowrap px-3 py-2 font-normal">
+                  Terakhir dipakai
+                </th>
+                <th scope="col" className="whitespace-nowrap px-3 py-2 font-normal">
+                  Request
+                </th>
+                <th scope="col" className="whitespace-nowrap px-3 py-2 font-normal">
+                  Status
+                </th>
+                <th scope="col" className="w-[90px] px-3 py-2" />
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-border">
               {items.map((item) => (
-                <tr key={item.id}>
-                  <td className="max-w-[220px] truncate" title={item.name}>
+                <tr key={item.id} className="row-hover h-11">
+                  <td className="max-w-[220px] truncate px-3 py-1.5" title={item.name}>
                     {item.name}
                   </td>
-                  <td className="whitespace-nowrap">
+                  <td className="whitespace-nowrap px-3 py-1.5">
                     <span className="font-mono text-label text-muted">{item.token_prefix}…</span>
                   </td>
                   {isOwner ? (
-                    <td className="whitespace-nowrap text-muted">{item.username ?? "-"}</td>
+                    <td className="whitespace-nowrap px-3 py-1.5 text-muted">
+                      {item.username ?? "-"}
+                    </td>
                   ) : null}
-                  <td className="whitespace-nowrap text-muted">
+                  <td className="whitespace-nowrap px-3 py-1.5 text-muted">
                     {item.last_used_at ? formatRelativeToNow(item.last_used_at) : "belum dipakai"}
                   </td>
-                  <td className="whitespace-nowrap tabular-nums">
+                  <td className="whitespace-nowrap px-3 py-1.5 tabular-nums">
                     {formatNumber(item.requests_count)}
                   </td>
-                  <td className="whitespace-nowrap">
+                  <td className="whitespace-nowrap px-3 py-1.5">
                     {item.is_active ? (
                       <Badge tone="active">aktif</Badge>
                     ) : (
                       <Badge tone="neutral">dicabut</Badge>
                     )}
                   </td>
-                  <td className="whitespace-nowrap text-right">
+                  <td className="whitespace-nowrap px-3 py-1.5 text-right">
                     {item.is_active ? (
                       <Button
                         size="sm"

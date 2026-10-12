@@ -88,7 +88,7 @@ export function LoginHistoryCard({
         <>
           {/* Tabel (≥ sm) */}
           <div className="hidden overflow-x-auto sm:block">
-            <table className="w-full text-left text-body">
+            <table className="w-full min-w-[560px] text-left text-body">
               <thead>
                 <tr className="border-b border-border text-label text-muted">
                   <th className="h-10 px-4 font-medium">Waktu</th>

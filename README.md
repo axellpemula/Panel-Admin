@@ -44,15 +44,14 @@ generate key, reseller, credit, sampai endpoint validasi publik yang **anti-bypa
 | Generate Key | Preset **atau** durasi custom (tanpa potongan credit), generate 1–100 key sekaligus, copy semua, export `.txt` |
 | Reseller | Tambah reseller (set password langsung), topup credit, aktif/nonaktif, reset password, edit data, hapus permanen. Klik username/Detail → **halaman detail** `/resellers/[id]`: statistik, grafik 7 hari, key terbaru, riwayat credit lengkap, riwayat login |
 | Credit Log | Semua transaksi credit, filter tanggal/aksi/reseller, export CSV |
-| Audit Log | Jejak aksi pada key: siapa yang ban/unban/hapus key/reset HWID (Owner, Reseller, atau sistem auto-ban), lengkap dengan alasan ban terstruktur & catatan. Filter tanggal/aksi/aktor/key, export CSV. **Unban auto-ban hanya bisa oleh Owner** |
+| Audit Log | **Satu timeline terpadu**: jejak aksi pada key (siapa yang ban/unban/hapus key/reset HWID — Owner, Reseller, atau sistem auto-ban, lengkap alasan ban terstruktur & catatan) **digabung** dengan aktivitas akun & sistem (ganti password, putus sesi, API key dibuat/dicabut, pengaturan diubah, credit, Telegram dihubungkan/ditautkan/dilepas). Filter tanggal/aksi (dikelompokkan: aksi key & aktivitas)/aktor/key, export CSV. **Unban auto-ban hanya bisa oleh Owner** |
 | Validation Attempts | Semua percobaan validasi key yang tercatat `/api/validate`: ringkasan sukses/gagal, **IP mencurigakan**, **key paling sering gagal** (breakdown alasan), **tren per jam** (grafik), daftar percobaan (filter tanggal/hasil/alasan/IP/key, pagination, export CSV). Data disimpan 7 hari. **Hanya Owner** |
 | Pengaturan | Menu paling bawah sidebar. **Info Akun**, **Info Web** (versi panel, mode database, status signing key, TTL token, runtime, zona waktu, format key, batasan), **Keamanan Akun** (ganti password sendiri + daftar **sesi aktif** dengan perangkat/IP dan tombol “putus semua sesi lain”), **Riwayat Login** (20 percobaan terakhir), **Kepadatan Tabel**, **Tema Warna**, serta **Integrasi**: **Telegram** (hubungkan bot Owner, pasang webhook, uji kirim, tautkan chat) dan **API Key** (token `xlp_…` untuk `/api/v1`, tampil sekali + tombol cabut) |
 | Batas & Sistem | Kartu di Pengaturan (Owner): semua ambang runtime — rate limit `/api/validate` per IP/key, brute-force & auto-ban, TTL token lisensi, kuota reset HWID, batas max device & quantity, masa retensi log, ambang analitik anti-abuse, saklar + rate limit API publik, dan notifikasi (nyala/mati, jenis event, ambang saldo tipis, anti-spam). Nilai di luar rentang dijepit otomatis |
 | Penyesuaian credit | Di halaman detail reseller: tambah **atau** kurangi saldo dengan **alasan wajib** (tercatat sebagai `adjustment` di credit log + activity log), berguna untuk kompensasi/koreksi salah topup |
-| Activity Log | Tab **“Aktivitas Akun & Sistem”** di halaman Audit: ganti password, putus sesi, API key dibuat/dicabut, pengaturan diubah, Telegram dihubungkan/ditautkan/dilepas — pelengkap audit log aksi-key |
 | API publik `/api/v1` | API key reseller (hash SHA-256, prefix, `last_used_at`, hitungan request, cabut kapan saja) untuk generate key, cek saldo, lihat/kelola key, dan reset HWID dari bot/skrip. Dokumentasi: [`docs/RESELLER_API.md`](docs/RESELLER_API.md) |
-| Notifikasi Telegram | Owner dihubungi otomatis saat: key **auto-ban**, login reseller gagal berulang, brute-force validasi per IP, saldo reseller melewati ambang tipis, plus **ringkasan harian** (cron `/api/cron/digest`). Bisa juga diteruskan ke webhook HTTP sendiri (`XLOOP_NOTIFY_WEBHOOK_URL`) |
-| Bot Telegram | Reseller (dan Owner) menautkan chat dari Pengaturan, lalu bisa `/saldo`, `/preset`, `/keys`, `/key`, `/generate`, `/reset` HWID, dan `/unlink` langsung dari Telegram |
+| Notifikasi Telegram | Owner dihubungi otomatis saat: key **auto-ban**, login reseller gagal berulang, brute-force validasi per IP, saldo reseller melewati ambang tipis, plus **ringkasan harian** (cron `/api/cron/digest`). Reseller yang menautkan chat juga menerima notifikasi personal: key-nya **diblokir/di-unban/dihapus** (+refund), **credit masuk/penyesuaian**, dan **pengingat harian key expiring ≤ 3 hari** — semuanya bisa dimatikan lewat saklar *Batas & Sistem → Notifikasi* (`enabled` / `notifyReseller`). Bisa juga diteruskan ke webhook HTTP sendiri (`XLOOP_NOTIFY_WEBHOOK_URL`) |
+| Bot Telegram | Reseller (dan Owner) menautkan chat dari Pengaturan, lalu memakai bot lewat **menu tombol** (`/menu`: Saldo, Preset, Key saya, Generate) atau perintah teks: `/saldo`, `/preset`, `/keys` (pagination ‹ ›), `/key`, `/generate` (wizard **pilih tool → version → preset → jumlah → device** dengan konfirmasi biaya), `/reset` HWID (dengan konfirmasi), `/unlink`. Key dibalas dalam blok kode yang bisa di-tap-copy |
 
 **Role: Reseller**
 
@@ -280,7 +279,7 @@ root/
 │   │   ├── generate/              # Generate Key
 │   │   ├── resellers/             # Reseller Management (owner) + [id]/ halaman detail reseller
 │   │   ├── credits/               # Credit Log
-│   │   ├── audit/                 # Audit Log (owner) — jejak ban/unban/hapus/reset HWID/auto-ban
+│   │   ├── audit/                 # Audit Log terpadu (owner): aksi key + aktivitas akun & sistem dalam satu timeline
 │   │   ├── validation-attempts/   # analitik anti-abuse (owner)
 │   │   └── settings/              # Pengaturan: akun, keamanan, tema, Telegram, API key, batas sistem
 │   ├── api/
@@ -290,8 +289,7 @@ root/
 │   │   ├── durations/             # preset durasi
 │   │   ├── resellers/             # reseller management (owner) + topup/set_active/reset_password/adjust_credit
 │   │   ├── credits/               # credit log + export CSV
-│   │   ├── audit/                 # audit log aksi key (owner) + export CSV
-│   │   ├── activity/              # activity log akun & sistem (owner) + export CSV
+│   │   ├── audit/                 # audit log terpadu: aksi key + aktivitas akun & sistem (owner) + export CSV
 │   │   ├── validation-attempts/   # data + analitik percobaan validasi (owner)
 │   │   ├── settings/              # konfigurasi runtime + Telegram (owner)
 │   │   ├── telegram/              # link (akun ⇄ chat) + webhook bot
@@ -615,7 +613,7 @@ Semua endpoint panel butuh session (cookie Supabase). Response seragam:
 
 | Method | Endpoint | Keterangan |
 |---|---|---|
-| GET | `/api/audit` | Jejak aksi pada key: `key_ban`, `key_unban`, `key_delete`, `hwid_reset`, `hwid_reset_all`, `key_auto_ban` — lengkap dengan aktor (owner/reseller/sistem), pemilik key, alasan ban, dan catatan. Query: `from, to, action, actor` (user_id, atau `system`), `key` (cari `key_value`), `page, per_page, format=csv`. Hanya Owner (reseller dapat `403`) |
+| GET | `/api/audit` | Audit log **terpadu** — satu timeline berisi aksi pada key (`key_ban`, `key_unban`, `key_delete`, `hwid_reset`, `hwid_reset_all`, `key_auto_ban`: aktor owner/reseller/sistem, pemilik key, alasan ban, catatan) **dan** aktivitas akun & sistem (`password_change`, `sessions_revoke`, `api_key_create/revoke`, `settings_update`, `credit_topup/adjust`, `telegram_*`, `security`). Query: `from, to, action` (aksi apa pun dari kedua kelompok), `actor` (user_id, atau `system`), `key` (cari `key_value`, hanya menyaring baris aksi key), `page, per_page, format=csv`. Hanya Owner (reseller dapat `403`) |
 
 ### Keamanan akun (semua role)
 
@@ -633,7 +631,6 @@ Semua endpoint panel butuh session (cookie Supabase). Response seragam:
 | PUT | `/api/settings` | (Owner) Patch sebagian; nilai dijepit ke rentang aman, perubahan tercatat di activity log |
 | GET/POST | `/api/settings/telegram` | (Owner) Status bot + live webhook info; aksi `connect`, `set_webhook`, `rotate_webhook`, `remove_webhook`, `disconnect`, `notifications`, `test` |
 | GET/POST/DELETE | `/api/telegram/link` | Tautkan/lepas chat Telegram akun ini (kode 6 karakter, berlaku 10 menit, sekali pakai) |
-| GET | `/api/activity` | Activity log akun & sistem (filter tanggal/aksi/aktor, pagination, CSV) |
 | GET/POST | `/api/api-keys` | Daftar & buat API key reseller (token hanya tampil sekali; Owner boleh membuatkan untuk reseller) |
 | DELETE | `/api/api-keys/[id]` | Cabut API key (soft revoke — langsung tidak berlaku) |
 

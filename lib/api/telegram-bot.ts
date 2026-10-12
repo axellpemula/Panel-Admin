@@ -8,24 +8,40 @@ import type { HwidResetLimits } from "@/lib/api/hwid-reset";
 import { loadRuntime, loadTelegram } from "@/lib/api/settings";
 import type { Database, KeyRow, ProfileRow } from "@/lib/types/database";
 import { formatNumber } from "@/lib/utils/format";
-import { sendTelegramMessage } from "@/lib/utils/telegram";
+import {
+  answerTelegramCallback,
+  escapeHtml,
+  sendTelegramMessage,
+  type TelegramInlineButton,
+} from "@/lib/utils/telegram";
 
 /**
- * Perintah bot Telegram reseller (#15).
+ * Perintah bot Telegram reseller (#15) — v2 dengan inline keyboard & HTML.
  *
  * Alur: pengguna menautkan chat lewat kode dari Pengaturan (`/start <KODE>`),
  * setelah itu bot melayani:
  *
- * | Perintah                              | Fungsi                                  |
- * | ------------------------------------- | --------------------------------------- |
- * | `/help`                               | daftar perintah                         |
- * | `/saldo`                              | sisa credit + ringkasan key             |
- * | `/preset`                             | daftar preset durasi (nomor + harga)     |
- * | `/keys [status]`                       | 5 key terbaru (status: active/expired/banned) |
- * | `/key XLVP-XXXX-XXXX`                  | detail key + daftar device              |
- * | `/generate <preset> [qty] [device]`    | generate key (harga = preset × qty × device) |
- * | `/reset <KEY> [n\|all]`                | reset HWID (kuota cooldown reseller berlaku) |
- * | `/unlink`                              | lepas tautan chat                       |
+ * | Perintah / tombol                      | Fungsi                                  |
+ * | -------------------------------------- | --------------------------------------- |
+ * | `/menu`                                | menu tombol (juga muncul di /start)     |
+ * | `/help`                                | daftar perintah                         |
+ * | `/saldo`                               | sisa credit + ringkasan key             |
+ * | `/preset`                              | daftar preset durasi (nomor + harga)    |
+ * | `/keys [status]`                        | 5 key terbaru per halaman (tombol ‹ ›)  |
+ * | `/key XLVP-XXXX-XXXX`                   | detail key + daftar device              |
+ * | `/generate <preset> [qty] [device]`     | generate cepat (tool aktif pertama)     |
+ * | wizard ⚡ Generate                       | pilih tool → version → preset → qty → device → konfirmasi |
+ * | `/reset <KEY> [n\|all]`                 | reset HWID (kuota cooldown berlaku)     |
+ * | `/unlink`                               | lepas tautan chat                       |
+ *
+ * Semua pesan memakai `parse_mode: HTML`; isi dari user (username, HWID, note)
+ * di-escape lewat `escapeHtml` supaya tidak bisa merusak format. Key dibungkus
+ * `<code>` agar bisa di-tap-copy di Telegram.
+ *
+ * Tombol memakai `callback_data` **stateless** — seluruh pilihan (tool, version,
+ * preset, qty, device, halaman) disimpan di data callback, bukan di memori
+ * server, jadi aman untuk runtime serverless. Nomor urut konsisten dengan
+ * perintah teks dan selalu di-validasi ulang saat dieksekusi.
  *
  * Bot memakai library yang sama dengan panel (`generateKeys`, `resetKeyDevices`),
  * jadi harga, validasi, kuota, audit, dan notifikasinya konsisten.
@@ -34,6 +50,13 @@ import { sendTelegramMessage } from "@/lib/utils/telegram";
 /** Batas perintah per chat per menit (anti loop/miskin). */
 const CHAT_RATE_LIMIT = 20;
 const RATE_WINDOW_MS = 60_000;
+
+/** Jumlah key per halaman di daftar /keys & tombol pagination. */
+const KEYS_PAGE_SIZE = 5;
+
+/** Pilihan jumlah key & device di wizard generate. */
+const QTY_CHOICES = [1, 3, 5, 10];
+const DEVICE_CHOICES = [1, 2, 3];
 
 const rateBuckets = new Map<string, number[]>();
 
@@ -58,31 +81,211 @@ interface TelegramUpdate {
     chat?: { id?: number | string; type?: string };
     from?: { id?: number; username?: string; first_name?: string };
   };
+  callback_query?: {
+    id?: string | number;
+    data?: string;
+    from?: { id?: number; username?: string; first_name?: string };
+    message?: { chat?: { id?: number | string } };
+  };
 }
 
 const HELP_TEXT = [
-  "Perintah yang tersedia:",
-  "/saldo — sisa credit & ringkasan key",
-  "/preset — daftar preset durasi",
-  "/keys [active|expired|banned] — 5 key terbaru",
+  "📖 <b>Cara pakai bot XLOOP PANEL</b>",
+  "",
+  "<b>Cek data</b>",
+  "/saldo — credit &amp; ringkasan key",
+  "/keys [active|expired|banned] — daftar key (halaman ‹ ›)",
   "/key XLVP-XXXX-XXXX — detail key + device",
-  "/generate <preset> [qty] [device] — buat key baru",
-  "/reset XLVP-XXXX-XXXX <all|nomor device> — reset HWID",
+  "/preset — daftar harga durasi",
+  "",
+  "<b>Aksi</b>",
+  "/generate &lt;preset&gt; [jumlah] [device] — buat key cepat",
+  "&nbsp;&nbsp;&nbsp;contoh: <code>/generate 1 3 2</code>",
+  "/reset XLVP-XXXX-XXXX [all|nomor] — reset HWID",
+  "",
+  "<b>Lainnya</b>",
+  "/menu — daftar tombol (paling gampang)",
   "/unlink — lepas tautan chat ini",
   "",
-  "Contoh: /generate 2 3 2",
+  "💡 Tap key mana pun di daftar untuk detail &amp; reset.",
 ].join("\n");
 
-/** Tambahkan kutipan key di dalam teks supaya mudah di-copy. */
+/** Bungkus nilai (key/HWID) jadi blok kode yang bisa di-tap-copy. */
 function code(value: string): string {
-  return `\`${value}\``;
+  return `<code>${escapeHtml(value)}</code>`;
 }
+
+function bold(value: string): string {
+  return `<b>${escapeHtml(value)}</b>`;
+}
+
+const BULAN_ID = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+
+/** "19 Okt 2026" (WIB, tanpa dependency locale). */
+function formatTanggalId(iso: string): string {
+  const date = new Date(new Date(iso).getTime() + 7 * 60 * 60 * 1000);
+  if (Number.isNaN(date.getTime())) return iso.slice(0, 10);
+  return `${date.getUTCDate()} ${BULAN_ID[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
+}
+
+/** "6 hari lagi" / "hari ini" / "3 hari lewat" — untuk label expired. */
+function sisaHariLabel(expiredAt: string | null): string | null {
+  if (!expiredAt) return null;
+  const diffMs = new Date(expiredAt).getTime() - Date.now();
+  const days = Math.ceil(diffMs / 86_400_000);
+  if (days > 1) return `${days} hari lagi`;
+  if (days === 1) return "besok";
+  if (days === 0) return "hari ini";
+  return `lewat ${Math.abs(days)} hari`;
+}
+
+const STATUS_EMOJI: Record<string, string> = { active: "✅", expired: "⌛", banned: "⛔" };
+
+// ---------------------------------------------------------------------------
+// Pengunci aksi dobel (double-tap tombol) — sederhana, per proses.
+// ---------------------------------------------------------------------------
+
+const actionLocks = new Map<string, number>();
+
+/** true kalau aksi sama dari chat yang sama masih dalam jeda (abaikan). */
+function actionLocked(chat: string, action: string, windowMs = 5_000): boolean {
+  const id = `${chat}:${action}`;
+  const now = Date.now();
+  if ((actionLocks.get(id) ?? 0) > now) return true;
+  actionLocks.set(id, now + windowMs);
+  if (actionLocks.size > 500) {
+    [...actionLocks.entries()].forEach(([key, until]) => {
+      if (until <= now) actionLocks.delete(key);
+    });
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Pengiriman
+// ---------------------------------------------------------------------------
+
+/** Catat kegagalan kirim balasan ke notification_logs biar bisa di-debug dari panel. */
+async function logBotReplyFailure(
+  admin: SupabaseClient<Database>,
+  chat: string,
+  error: string,
+): Promise<void> {
+  try {
+    await admin.from("notification_logs").insert({
+      event: "bot_reply",
+      dedupe_key: null,
+      target: `telegram:${chat}`,
+      success: false,
+      summary: `Gagal membalas: ${error}`.slice(0, 500),
+      detail: null,
+    });
+  } catch {
+    // Logging gagal — abaikan, jangan menggagalkan handler.
+  }
+}
+
+interface ReplyOptions {
+  keyboard?: TelegramInlineButton[][];
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard utama & tombol
+// ---------------------------------------------------------------------------
+
+function mainMenuKeyboard(): TelegramInlineButton[][] {
+  return [
+    [
+      { text: "💰 Saldo", callback_data: "menu:saldo" },
+      { text: "📋 Preset", callback_data: "menu:preset" },
+    ],
+    [
+      { text: "🔑 Key saya", callback_data: "menu:keys" },
+      { text: "⚡ Generate", callback_data: "wizard:start" },
+    ],
+    [{ text: "🔗 Lepas tautan chat", callback_data: "menu:unlink" }],
+  ];
+}
+
+const MENU_HOME_ROW: TelegramInlineButton[] = [
+  { text: "🏠 Menu", callback_data: "menu:home" },
+];
+
+function keysKeyboard(
+  status: string | null,
+  page: number,
+  totalPages: number,
+  keyValues: string[],
+): TelegramInlineButton[][] {
+  const rows: TelegramInlineButton[][] = keyValues.map((value) => [
+    { text: value, callback_data: `key:${value}` },
+  ]);
+
+  const statusPart = status ?? "all";
+  const nav: TelegramInlineButton[] = [];
+  if (page > 1) {
+    nav.push({ text: "‹", callback_data: `keys:${statusPart}:${page - 1}` });
+  }
+  nav.push({ text: `${page}/${Math.max(1, totalPages)}`, callback_data: `keys:${statusPart}:${page}` });
+  if (page < totalPages) {
+    nav.push({ text: "›", callback_data: `keys:${statusPart}:${page + 1}` });
+  }
+  rows.push(nav);
+  rows.push([
+    ...(status
+      ? [{ text: "Semua status", callback_data: `keys:all:1` } satisfies TelegramInlineButton]
+      : []),
+    ...MENU_HOME_ROW,
+  ]);
+  return rows;
+}
+
+function keyDetailKeyboard(keyValue: string, deviceCount: number): TelegramInlineButton[][] {
+  const rows: TelegramInlineButton[][] = [];
+  if (deviceCount > 0) {
+    const deviceButtons: TelegramInlineButton[] = [];
+    for (let index = 1; index <= deviceCount && index <= 5; index += 1) {
+      deviceButtons.push({
+        text: `♻️ #${index}`,
+        callback_data: `rstc:${keyValue}:${index}`,
+      });
+    }
+    deviceButtons.push({ text: "♻️ Semua", callback_data: `rstc:${keyValue}:all` });
+    rows.push(deviceButtons);
+  }
+  rows.push([{ text: "◀️ Daftar key", callback_data: "menu:keys" }]);
+  return rows;
+}
+
+function resetConfirmKeyboard(keyValue: string, target: string): TelegramInlineButton[][] {
+  return [
+    [
+      { text: "✅ Ya, reset", callback_data: `rstgo:${keyValue}:${target}` },
+      { text: "❌ Batal", callback_data: `key:${keyValue}` },
+    ],
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Handler utama
+// ---------------------------------------------------------------------------
 
 export async function handleTelegramUpdate(
   admin: SupabaseClient<Database>,
   update: TelegramUpdate,
 ): Promise<void> {
-  const message = update.message;
+  if (update.callback_query) return handleCallbackQuery(admin, update.callback_query);
+  return handleMessage(admin, update.message);
+}
+
+// ---------------------------------------------------------------------------
+// Pesan teks (perintah)
+// ---------------------------------------------------------------------------
+
+async function handleMessage(
+  admin: SupabaseClient<Database>,
+  message: TelegramUpdate["message"],
+): Promise<void> {
   const chatId = message?.chat?.id;
   const text = (message?.text ?? "").trim();
   if (chatId === undefined || chatId === null || text.length === 0) return;
@@ -91,15 +294,20 @@ export async function handleTelegramUpdate(
   if (!telegram.botToken) return;
 
   const chat = String(chatId);
-  const reply = async (body: string) => {
+  const send = async (body: string, options?: ReplyOptions) => {
     const result = await sendTelegramMessage(telegram.botToken as string, chat, body, {
       timeoutMs: 8_000,
+      parseMode: "HTML",
+      keyboard: options?.keyboard,
     });
-    if (!result.ok) console.warn("[telegram-bot] gagal membalas:", result.error);
+    if (!result.ok) {
+      console.warn("[telegram-bot] gagal membalas:", result.error);
+      await logBotReplyFailure(admin, chat, result.error ?? "gagal");
+    }
   };
 
   if (rateLimited(chat)) {
-    await reply("Terlalu banyak perintah. Coba lagi sebentar lagi.");
+    await send("Terlalu banyak perintah. Coba lagi sebentar lagi.");
     return;
   }
 
@@ -110,15 +318,20 @@ export async function handleTelegramUpdate(
   if (command === "/start") {
     const candidate = (args[0] ?? "").toUpperCase();
     if (!candidate) {
-      await reply(
+      const firstName = message?.from?.first_name?.trim();
+      await send(
         [
-          "Halo! Bot ini milik XLOOP PANEL.",
+          `Halo${firstName ? ` ${escapeHtml(firstName)}` : ""}! 👋`,
+          `Aku bot ${bold("XLOOP PANEL")} — asisten cek saldo, kelola key, dan generate langsung dari Telegram.`,
           "",
-          "Untuk menautkan akun: buka panel → Pengaturan → Telegram → Tautkan, lalu kirim",
-          `/start <KODE> ke chat ini.`,
+          "Belum tertaut? Hubungkan akun dulu:",
+          "1️⃣ Buka panel → Pengaturan → Telegram",
+          "2️⃣ Tap “Tautkan akun”, salin kodenya",
+          `3️⃣ Kirim di sini: ${code("/start KODE")}`,
           "",
-          HELP_TEXT,
+          "Sudah tertaut? Langsung buka menu 👇",
         ].join("\n"),
+        { keyboard: mainMenuKeyboard() },
       );
       return;
     }
@@ -126,16 +339,20 @@ export async function handleTelegramUpdate(
     const linked = await linkChat(admin, candidate, chat, message?.from?.username ?? null);
 
     if (!linked.ok) {
-      await reply(linked.error);
+      await send(escapeHtml(linked.error));
       return;
     }
 
-    await reply(
+    await send(
       [
-        `Berhasil! Chat ini tertaut ke akun ${linked.profile.username} (${linked.profile.role}).`,
+        "✅ <b>Tautan berhasil!</b>",
         "",
-        "Kamu akan menerima notifikasi penting di sini. Ketik /help untuk daftar perintah.",
+        `Chat ini sekarang terhubung ke akun ${bold(linked.profile.username)} (${escapeHtml(linked.profile.role)}).`,
+        "Notifikasi penting — key diblokir, credit masuk, pengingat expired — akan muncul di sini.",
+        "",
+        "Mulai dari menu 👇",
       ].join("\n"),
+      { keyboard: mainMenuKeyboard() },
     );
     return;
   }
@@ -143,17 +360,23 @@ export async function handleTelegramUpdate(
   // ---------- Semua perintah lain butuh tautan ----------
   const profile = await profileForChat(admin, chat);
   if (!profile) {
-    await reply(
-      "Chat ini belum tertaut ke akun panel. Buka panel → Pengaturan → Telegram → Tautkan akun, lalu kirim kode `/start <KODE>` ke bot ini.",
+    await send(
+      escapeHtml(
+        "Chat ini belum tertaut ke akun panel. Buka panel → Pengaturan → Telegram → Tautkan akun, lalu kirim kode /start <KODE> ke bot ini.",
+      ),
     );
     return;
   }
 
   try {
     switch (command) {
+      case "/menu":
+        await send("🏠 <b>Menu</b> — pilih aksinya 👇", { keyboard: mainMenuKeyboard() });
+        return;
+
       case "/help":
       case "/bantuan":
-        await reply(HELP_TEXT);
+        await send(HELP_TEXT);
         return;
 
       case "/unlink": {
@@ -167,64 +390,26 @@ export async function handleTelegramUpdate(
           targetLabel: profile.username,
           detail: { chat_id: chat, source: "bot" },
         });
-        await reply("Tautan chat ini sudah dilepas. Notifikasi tidak akan dikirim ke sini lagi.");
-        return;
-      }
-
-      case "/saldo":
-      case "/credit": {
-        const perPage = 1;
-        const [active, expired, banned] = await Promise.all([
-          listKeys(admin, { userId: profile.id, status: "active", perPage }),
-          listKeys(admin, { userId: profile.id, status: "expired", perPage }),
-          listKeys(admin, { userId: profile.id, status: "banned", perPage }),
-        ]);
-
-        const isOwner = profile.role === "owner";
-        await reply(
+        await send(
           [
-            `Akun: ${profile.username} (${isOwner ? "Owner" : "Reseller"})`,
-            `Sisa credit: ${formatNumber(profile.credit)}`,
+            "🔓 <b>Tautan dilepas.</b>",
             "",
-            `Key aktif: ${formatNumber(active.total)}`,
-            `Expired: ${formatNumber(expired.total)}`,
-            `Banned: ${formatNumber(banned.total)}`,
-            "",
-            isOwner ? "Owner tidak dipotong credit saat generate." : "Harga 1 unit = 1 key × 1 device.",
+            "Chat ini tidak lagi menerima notifikasi & perintah akunmu.",
+            "Bisa ditautkan lagi kapan saja dari panel → Pengaturan → Telegram.",
           ].join("\n"),
         );
         return;
       }
 
-      case "/preset":
-      case "/presets": {
-        const { data, error } = await admin
-          .from("duration_presets")
-          .select("id, name, days, credit_cost, is_active")
-          .eq("is_active", true)
-          .order("days", { ascending: true });
-
-        if (error) throw new Error(error.message);
-        const presets = (data ?? []) as {
-          name: string;
-          days: number | null;
-          credit_cost: number;
-        }[];
-
-        if (presets.length === 0) {
-          await reply("Belum ada preset durasi aktif.");
-          return;
-        }
-
-        const lines = presets.map((preset, index) => {
-          const duration =
-            preset.days === null || preset.days === 0 ? "lifetime" : `${preset.days} hari`;
-          return `${index + 1}. ${preset.name} (${duration}) — ${formatNumber(preset.credit_cost)} credit/device`;
-        });
-
-        await reply(["Preset durasi aktif:", "", ...lines, "", "Pakai nomornya: /generate 1 2 1"].join("\n"));
+      case "/saldo":
+      case "/credit":
+        await sendSaldo(admin, profile, send);
         return;
-      }
+
+      case "/preset":
+      case "/presets":
+        await sendPresets(admin, send);
+        return;
 
       case "/keys":
       case "/key": {
@@ -233,255 +418,831 @@ export async function handleTelegramUpdate(
           const statusFilter = args[0]?.toLowerCase();
           const status = ["active", "expired", "banned"].includes(statusFilter)
             ? statusFilter
-            : undefined;
-          const result = await listKeys(admin, { userId: profile.id, status, perPage: 5 });
-          if (result.items.length === 0) {
-            await reply("Belum ada key pada filter itu.");
-            return;
-          }
-          await reply(
-            [
-              `5 key terbaru${status ? ` (${status})` : ""}:`,
-              "",
-              ...result.items.map(
-                (item) =>
-                  `${item.key_value} · ${item.tool_name}${item.version_name ? ` ${item.version_name}` : ""} · ${item.status} · ${item.devices_used}/${item.max_device} device`,
-              ),
-              "",
-              "Detail satu key: /key XLVP-XXXX-XXXX",
-            ].join("\n"),
-          );
+            : null;
+          await sendKeysPage(admin, profile, send, status, 1);
           return;
         }
-
-        const search = await listKeys(admin, { userId: profile.id, search: keyArg, perPage: 5 });
-        const found = search.items.find(
-          (item) => item.key_value.toUpperCase() === keyArg.toUpperCase(),
-        );
-        if (!found) {
-          await reply(`Key ${keyArg.toUpperCase()} tidak ditemukan di akun ini.`);
-          return;
-        }
-
-        const devices = await listKeyDevices(admin, found.id);
-
-        await reply(
-          [
-            `Key: ${found.key_value}`,
-            `Status: ${found.status}`,
-            `Tool: ${found.tool_name}${found.version_name ? ` ${found.version_name}` : ""}`,
-            `Device: ${devices.length}/${found.max_device}`,
-            found.expired_at ? `Expired: ${found.expired_at.slice(0, 10)}` : "Expired: lifetime",
-            found.status === "banned" ? "Key sedang diblokir (banned)." : "",
-            "",
-            devices.length > 0
-              ? [
-                  "Device terdaftar:",
-                  ...devices.map(
-                    (device, index) => `${index + 1}. ${device.hardware_id}`,
-                  ),
-                  "",
-                  "Reset: /reset " + found.key_value + " all",
-                ].join("\n")
-              : "Belum ada device terdaftar.",
-          ]
-            .filter(Boolean)
-            .join("\n"),
-        );
+        await sendKeyDetail(admin, profile, send, keyArg);
         return;
       }
 
       case "/generate": {
         const presetNumber = Number.parseInt(args[0] ?? "", 10);
+        if (!Number.isFinite(presetNumber) || presetNumber < 1) {
+          await send(
+            [
+              escapeHtml("Format: /generate <nomor preset> [jumlah key] [jumlah device]"),
+              escapeHtml("Lihat nomor preset dengan /preset, atau pakai ⚡ Generate di /menu untuk memilih tool."),
+            ].join("\n"),
+          );
+          return;
+        }
         const quantity = args[1] ? Number.parseInt(args[1], 10) : 1;
         const maxDevice = args[2] ? Number.parseInt(args[2], 10) : 1;
-
-        if (!Number.isFinite(presetNumber) || presetNumber < 1) {
-          await reply("Format: /generate <nomor preset> [jumlah key] [jumlah device]\nLihat nomor preset dengan /preset.");
-          return;
-        }
-
-        const { data: presetRows, error } = await admin
-          .from("duration_presets")
-          .select("id, name, days, credit_cost, is_active")
-          .eq("is_active", true)
-          .order("days", { ascending: true });
-        if (error) throw new Error(error.message);
-
-        const presets = (presetRows ?? []) as {
-          id: string;
-          name: string;
-          days: number | null;
-          credit_cost: number;
-        }[];
-        const preset = presets[presetNumber - 1];
-        if (!preset) {
-          await reply(`Preset nomor ${presetNumber} tidak ada. Kirim /preset untuk daftarnya.`);
-          return;
-        }
-
-        const { data: toolRows, error: toolError } = await admin
-          .from("tool_types")
-          .select("id, name, is_active")
-          .eq("is_active", true)
-          .order("created_at", { ascending: true })
-          .limit(1);
-        if (toolError) throw new Error(toolError.message);
-
-        const tool = ((toolRows ?? []) as { id: string; name: string }[])[0];
-        if (!tool) {
-          await reply("Belum ada tool aktif. Hubungi Owner.");
-          return;
-        }
-
-        const { data: versionRows, error: versionError } = await admin
-          .from("tool_versions")
-          .select("id, name, is_active")
-          .eq("tool_type_id", tool.id)
-          .eq("is_active", true)
-          .order("created_at", { ascending: false })
-          .limit(1);
-        if (versionError) throw new Error(versionError.message);
-
-        const version = ((versionRows ?? []) as { id: string; name: string }[])[0];
-        if (!version) {
-          await reply(`Tool ${tool.name} belum punya version aktif. Hubungi Owner.`);
-          return;
-        }
-
-        const result = await generateKeys(
-          { admin, userId: profile.id, profile, isOwner: profile.role === "owner" },
-          {
-            toolTypeId: tool.id,
-            toolVersionId: version.id,
-            durationMode: "preset",
-            durationPresetId: preset.id,
-            maxDevice: Number.isFinite(maxDevice) && maxDevice > 0 ? maxDevice : 1,
-            quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
-            note: "Digenerate lewat bot Telegram",
-          },
-        );
-
-        await reply(
-          [
-            `${result.keys.length} key dibuat ✓`,
-            "",
-            ...result.keys.map((item) => code(item.key_value)),
-            "",
-            `${result.summary.tool_name} ${result.summary.version_name} · ${result.summary.duration_label}`,
-            `${result.keys.length} × ${result.summary.max_device} device`,
-            `Biaya: ${formatNumber(result.summary.credit_cost)} credit`,
-            `Sisa credit: ${formatNumber(result.summary.credit_balance_after)}`,
-          ].join("\n"),
-        );
+        // Perintah teks memakai tool aktif pertama — untuk memilih tool, pakai wizard /menu.
+        await executeGenerate(admin, profile, send, 1, 1, presetNumber, quantity, maxDevice);
         return;
       }
 
       case "/reset": {
         const [keyArg, targetArg] = [args[0], args[1]];
         if (!keyArg) {
-          await reply("Format: /reset XLVP-XXXX-XXXX <all|nomor device>");
+          await send(
+            escapeHtml("Format: /reset XLVP-XXXX-XXXX <all|nomor device>\nAtau tap key di /keys lalu pilih tombol reset."),
+          );
           return;
         }
-
-        const search = await listKeys(admin, { userId: profile.id, search: keyArg, perPage: 5 });
-        const found = search.items.find(
-          (item) => item.key_value.toUpperCase() === keyArg.toUpperCase(),
-        );
-        if (!found) {
-          await reply(`Key ${keyArg.toUpperCase()} tidak ditemukan di akun ini.`);
-          return;
-        }
-
-        const runtime = await loadRuntime(admin);
-        const limits: HwidResetLimits = {
-          limit: runtime.hwid.resetLimit,
-          windowHours: runtime.hwid.resetWindowHours,
-        };
-
-        let hardwareId: string | null = null;
-        const devices = await listKeyDevices(admin, found.id);
-
-        if (targetArg && targetArg.toLowerCase() !== "all") {
-          const index = Number.parseInt(targetArg, 10);
-          if (!Number.isFinite(index) || index < 1 || index > devices.length) {
-            await reply(
-              [
-                `Nomor device tidak valid. Key ini punya ${devices.length} device:`,
-                ...devices.map((device, position) => `${position + 1}. ${device.hardware_id}`),
-                "",
-                "Gunakan /reset " + found.key_value + " all untuk reset semua.",
-              ].join("\n"),
-            );
-            return;
-          }
-          hardwareId = devices[index - 1].hardware_id;
-        }
-
-        const { data: keyRow, error: keyError } = await admin
-          .from("keys")
-          .select("*")
-          .eq("id", found.id)
-          .maybeSingle<KeyRow>();
-        if (keyError || !keyRow) {
-          await reply("Gagal membaca data key. Coba lagi.");
-          return;
-        }
-
-        const result = await resetKeyDevices(
-          {
-            admin,
-            userId: profile.id,
-            username: profile.username,
-            role: profile.role,
-            isOwner: profile.role === "owner",
-          },
-          keyRow,
-          { hardwareId, limits },
-        );
-
-        if (!result.ok) {
-          await reply(`Gagal reset: ${result.error}`);
-          return;
-        }
-
-        await reply(
-          [
-            `Reset berhasil ✓ (${result.removed} device dihapus)`,
-            "",
-            `Key: ${found.key_value}`,
-            result.cooldown && typeof result.cooldown.remaining === "number"
-              ? `Kuota reset tersisa: ${Math.max(0, result.cooldown.remaining)}× per ${limits.windowHours} jam`
-              : "Owner bebas kuota reset.",
-          ].join("\n"),
-        );
+        await executeReset(admin, profile, send, keyArg, targetArg && targetArg.toLowerCase() !== "all" ? targetArg : "all", true);
         return;
       }
 
       default:
-        await reply(HELP_TEXT);
+        await send(
+          [
+            `🤔 Perintah ${code(rawCommand)} tidak dikenal.`,
+            "",
+            "Tap menu di bawah, atau ketik /help untuk daftar lengkap.",
+          ].join("\n"),
+          { keyboard: mainMenuKeyboard() },
+        );
     }
   } catch (error) {
     if (error instanceof GenerateError) {
-      await reply(`Gagal: ${error.message}`);
+      await send(`❌ ${escapeHtml(error.message)}`);
       return;
     }
     console.error("[telegram-bot] perintah gagal:", (error as Error)?.message ?? error);
-    await reply("Terjadi kesalahan saat memproses perintah. Coba lagi sebentar lagi.");
+    await send(escapeHtml("Terjadi kesalahan saat memproses perintah. Coba lagi sebentar lagi."));
   }
 }
+
+// ---------------------------------------------------------------------------
+// Callback query (tombol inline)
+// ---------------------------------------------------------------------------
+
+async function handleCallbackQuery(
+  admin: SupabaseClient<Database>,
+  query: NonNullable<TelegramUpdate["callback_query"]>,
+): Promise<void> {
+  const chatId = query.message?.chat?.id;
+  const data = (query.data ?? "").trim();
+  if (chatId === undefined || chatId === null || data.length === 0) return;
+
+  const telegram = await loadTelegram(admin);
+  if (!telegram.botToken) return;
+
+  const chat = String(chatId);
+  const callbackId = query.id !== undefined ? String(query.id) : null;
+
+  // Tutup spinner segera; toast error menyusul kalau perlu.
+  const answer = async (text?: string) => {
+    if (callbackId) await answerTelegramCallback(telegram.botToken as string, callbackId, text);
+  };
+
+  const send = async (body: string, options?: ReplyOptions) => {
+    const result = await sendTelegramMessage(telegram.botToken as string, chat, body, {
+      timeoutMs: 8_000,
+      parseMode: "HTML",
+      keyboard: options?.keyboard,
+    });
+    if (!result.ok) {
+      console.warn("[telegram-bot] gagal membalas callback:", result.error);
+      await logBotReplyFailure(admin, chat, result.error ?? "gagal");
+    }
+  };
+
+  if (rateLimited(chat)) {
+    await answer("Terlalu banyak perintah, tunggu sebentar.");
+    return;
+  }
+
+  const profile = await profileForChat(admin, chat);
+  if (!profile) {
+    await answer("Chat belum tertaut ke akun panel.");
+    return;
+  }
+
+  const [head, ...rest] = data.split(":");
+
+  try {
+    switch (head) {
+      case "menu": {
+        const target = rest[0] ?? "home";
+        if (target === "saldo") await sendSaldo(admin, profile, send);
+        else if (target === "preset") await sendPresets(admin, send);
+        else if (target === "keys") await sendKeysPage(admin, profile, send, null, 1);
+        else if (target === "unlink") {
+          if (actionLocked(chat, "unlink", 3_000)) {
+            await answer();
+            return;
+          }
+          await admin.from("telegram_links").delete().eq("user_id", profile.id);
+          await recordActivity(admin, {
+            actorId: profile.id,
+            actorUsername: profile.username,
+            actorRole: profile.role,
+            action: "telegram_unlink",
+            targetType: "telegram",
+            targetLabel: profile.username,
+            detail: { chat_id: chat, source: "bot_menu" },
+          });
+          await send(
+            [
+              "🔓 <b>Tautan dilepas.</b>",
+              "",
+              "Sampai jumpa! Chat ini bisa ditautkan lagi kapan saja dari panel → Pengaturan → Telegram.",
+            ].join("\n"),
+          );
+        } else await send("Silakan pilih 👇", { keyboard: mainMenuKeyboard() });
+        await answer();
+        return;
+      }
+
+      case "keys": {
+        const status = rest[0] && rest[0] !== "all" ? rest[0] : null;
+        const page = Number.parseInt(rest[1] ?? "1", 10) || 1;
+        await sendKeysPage(admin, profile, send, status, page);
+        await answer();
+        return;
+      }
+
+      case "key": {
+        await sendKeyDetail(admin, profile, send, rest.join(":"));
+        await answer();
+        return;
+      }
+
+      case "rstc": {
+        // Konfirmasi reset: rest = [KEY, target]
+        const keyValue = rest[0] ?? "";
+        const target = rest[1] ?? "all";
+        await send(
+          [
+            `♻️ <b>Reset HWID?</b>`,
+            code(keyValue),
+            "",
+            target === "all"
+              ? "Yang dihapus: <b>semua device</b>. Pemakai lama tidak bisa login lagi — harus aktifasi dengan HWID baru."
+              : `Yang dihapus: <b>device #${escapeHtml(target)}</b>. Device lain tetap aman.`,
+            "",
+            escapeHtml("Aksi tercatat di audit log & kuota cooldown reset tetap berlaku. Lanjut?"),
+          ].join("\n"),
+          { keyboard: resetConfirmKeyboard(keyValue, target) },
+        );
+        await answer();
+        return;
+      }
+
+      case "rstgo": {
+        if (actionLocked(chat, "reset")) {
+          await answer("Reset sebelumnya masih diproses…");
+          return;
+        }
+        const keyValue = rest[0] ?? "";
+        const target = rest[1] ?? "all";
+        await executeReset(admin, profile, send, keyValue, target, false);
+        await answer();
+        return;
+      }
+
+      // ---------- Wizard generate ----------
+      case "wizard": {
+        if (rest[0] === "start") await renderWizardTools(admin, send);
+        else if (rest[0] === "cancel") await send("Wizard generate dibatalkan.", { keyboard: mainMenuKeyboard() });
+        await answer();
+        return;
+      }
+
+      case "gentool": {
+        await renderWizardVersions(admin, send, Number.parseInt(rest[0] ?? "1", 10) || 1);
+        await answer();
+        return;
+      }
+
+      case "genver": {
+        await renderWizardPresets(admin, send, Number.parseInt(rest[0] ?? "1", 10) || 1, Number.parseInt(rest[1] ?? "1", 10) || 1);
+        await answer();
+        return;
+      }
+
+      case "genpre": {
+        await renderWizardQty(
+          admin,
+          send,
+          Number.parseInt(rest[0] ?? "1", 10) || 1,
+          Number.parseInt(rest[1] ?? "1", 10) || 1,
+          Number.parseInt(rest[2] ?? "1", 10) || 1,
+        );
+        await answer();
+        return;
+      }
+
+      case "genqty": {
+        const [t, v, p, q] = rest.map((value) => Number.parseInt(value, 10) || 1);
+        await renderWizardDevices(admin, send, t, v, p, q);
+        await answer();
+        return;
+      }
+
+      case "gendev": {
+        const [t, v, p, q, d] = rest.map((value) => Number.parseInt(value, 10) || 1);
+        await renderWizardConfirm(admin, profile, send, t, v, p, q, d);
+        await answer();
+        return;
+      }
+
+      case "gen": {
+        if (rest[0] === "go") {
+          if (actionLocked(chat, "generate")) {
+            await answer("Generate sebelumnya masih diproses…");
+            return;
+          }
+          const [t, v, p, q, d] = rest.slice(1).map((value) => Number.parseInt(value, 10) || 1);
+          await answer("Memproses…");
+          await executeGenerate(admin, profile, send, t, v, p, q, d);
+        } else {
+          await send("Wizard generate dibatalkan.", { keyboard: mainMenuKeyboard() });
+          await answer();
+        }
+        return;
+      }
+
+      default:
+        await answer("Tombol tidak dikenal.");
+    }
+  } catch (error) {
+    if (error instanceof GenerateError) {
+      await send(`❌ ${escapeHtml(error.message)}`);
+      await answer();
+      return;
+    }
+    console.error("[telegram-bot] callback gagal:", (error as Error)?.message ?? error);
+    await send(escapeHtml("Terjadi kesalahan saat memproses tombol. Coba lagi."));
+    await answer();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Render: saldo / preset / keys / detail key
+// ---------------------------------------------------------------------------
+
+type SendFn = (body: string, options?: ReplyOptions) => Promise<void>;
+
+async function sendSaldo(admin: SupabaseClient<Database>, profile: ProfileRow, send: SendFn) {
+  const perPage = 1;
+  const [active, expired, banned] = await Promise.all([
+    listKeys(admin, { userId: profile.id, status: "active", perPage }),
+    listKeys(admin, { userId: profile.id, status: "expired", perPage }),
+    listKeys(admin, { userId: profile.id, status: "banned", perPage }),
+  ]);
+
+  const isOwner = profile.role === "owner";
+  await send(
+    [
+      `💰 <b>Saldo — ${escapeHtml(profile.username)}</b> (${isOwner ? "Owner" : "Reseller"})`,
+      "",
+      `Credit tersedia: ${bold(formatNumber(profile.credit))}`,
+      `Key: ✅ ${formatNumber(active.total)} aktif · ⌛ ${formatNumber(expired.total)} expired · ⛔ ${formatNumber(banned.total)} banned`,
+      "",
+      escapeHtml(
+        isOwner
+          ? "Owner tidak dipotong credit saat generate."
+          : "Biaya generate = harga preset × jumlah key × device.",
+      ),
+    ].join("\n"),
+    { keyboard: [MENU_HOME_ROW] },
+  );
+}
+
+async function sendPresets(admin: SupabaseClient<Database>, send: SendFn) {
+  const { data, error } = await admin
+    .from("duration_presets")
+    .select("id, name, days, credit_cost, is_active")
+    .eq("is_active", true)
+    .order("days", { ascending: true });
+
+  if (error) throw new Error(error.message);
+  const presets = (data ?? []) as {
+    name: string;
+    days: number | null;
+    credit_cost: number;
+  }[];
+
+  if (presets.length === 0) {
+    await send("Belum ada preset durasi aktif.", { keyboard: [MENU_HOME_ROW] });
+    return;
+  }
+
+  const lines = presets.map((preset, index) => {
+    const duration =
+      preset.days === null || preset.days === 0 ? "lifetime" : `${preset.days} hari`;
+    return `${index + 1}. ${escapeHtml(preset.name)} (${duration}) — ${formatNumber(preset.credit_cost)} credit/device`;
+  });
+
+  await send(
+    [
+      "📋 <b>Preset durasi aktif</b>",
+      "",
+      ...lines,
+      "",
+      escapeHtml("Contoh: /generate 1 2 1 → 2 key 1 device pakai preset paling atas."),
+      "Atau tap ⚡ Generate di /menu untuk pilih tool &amp; version dulu.",
+    ].join("\n"),
+    { keyboard: [MENU_HOME_ROW] },
+  );
+}
+
+async function sendKeysPage(
+  admin: SupabaseClient<Database>,
+  profile: ProfileRow,
+  send: SendFn,
+  status: string | null,
+  page: number,
+) {
+  const result = await listKeys(admin, {
+    userId: profile.id,
+    status: status ?? undefined,
+    page,
+    perPage: KEYS_PAGE_SIZE,
+  });
+
+  if (result.items.length === 0) {
+    await send(
+      status
+        ? escapeHtml(`Belum ada key dengan status ${status}.`)
+        : "Belum ada key. Buat lewat ⚡ Generate!",
+      { keyboard: [MENU_HOME_ROW] },
+    );
+    return;
+  }
+
+  const lines = result.items.map((item) => {
+    const emoji = STATUS_EMOJI[item.status] ?? "•";
+    const sisa = sisaHariLabel(item.expired_at);
+    const sisaText = item.status === "active" && sisa ? ` · ⏳ ${sisa}` : "";
+    return `${emoji} ${code(item.key_value)}\n    ${escapeHtml(item.tool_name)}${item.version_name ? ` ${escapeHtml(item.version_name)}` : ""} · ${item.devices_used}/${item.max_device} device${sisaText}`;
+  });
+  const statusLabel = status ? ` (${status})` : " (semua)";
+
+  await send(
+    [
+      `🔑 <b>Key${escapeHtml(statusLabel)}</b> — halaman ${result.page}/${result.totalPages}`,
+      "",
+      ...lines,
+      "",
+      "💡 Tap key untuk detail &amp; reset.",
+    ].join("\n"),
+    { keyboard: keysKeyboard(status, result.page, result.totalPages, result.items.map((item) => item.key_value)) },
+  );
+}
+
+async function sendKeyDetail(
+  admin: SupabaseClient<Database>,
+  profile: ProfileRow,
+  send: SendFn,
+  keyArg: string,
+) {
+  const search = await listKeys(admin, { userId: profile.id, search: keyArg, perPage: 5 });
+  const found = search.items.find(
+    (item) => item.key_value.toUpperCase() === keyArg.toUpperCase(),
+  );
+  if (!found) {
+    await send(`${escapeHtml(keyArg.toUpperCase())} tidak ditemukan di akun ini.`, {
+      keyboard: [MENU_HOME_ROW],
+    });
+    return;
+  }
+
+  const devices = await listKeyDevices(admin, found.id);
+  const sisa = sisaHariLabel(found.expired_at);
+  const expiryLine = found.expired_at
+    ? `Aktif sampai: <b>${formatTanggalId(found.expired_at)}</b>${found.status === "active" && sisa ? ` (${escapeHtml(sisa)})` : ""}`
+    : "Aktif sampai: <b>selamanya</b> (lifetime)";
+
+  await send(
+    [
+      `🔑 ${code(found.key_value)}`,
+      "",
+      `Status: ${STATUS_EMOJI[found.status] ?? "•"} ${escapeHtml(found.status)}`,
+      `Tool: ${escapeHtml(found.tool_name)}${found.version_name ? ` ${escapeHtml(found.version_name)}` : ""}`,
+      `Device: ${devices.length}/${found.max_device}`,
+      expiryLine,
+      found.status === "banned" ? "⛔ Key sedang diblokir — hubungi Owner kalau salah." : "",
+      "",
+      devices.length > 0
+        ? [
+            "<b>Device terdaftar:</b>",
+            ...devices.map(
+              (device, index) =>
+                `${index + 1}. <code>${escapeHtml(device.hardware_id.length > 42 ? `${device.hardware_id.slice(0, 42)}…` : device.hardware_id)}</code>`,
+            ),
+          ].join("\n")
+        : "Belum ada device terdaftar.",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    { keyboard: keyDetailKeyboard(found.key_value, devices.length) },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Reset HWID (dipakai perintah teks & tombol)
+// ---------------------------------------------------------------------------
+
+async function executeReset(
+  admin: SupabaseClient<Database>,
+  profile: ProfileRow,
+  send: SendFn,
+  keyArg: string,
+  target: string,
+  fromText: boolean,
+) {
+  if (!/^xlvp-/i.test(keyArg)) {
+    await send(escapeHtml("Format key tidak dikenal. Contoh: /reset XLVP-XXXX-XXXX all"));
+    return;
+  }
+
+  const search = await listKeys(admin, { userId: profile.id, search: keyArg, perPage: 5 });
+  const found = search.items.find(
+    (item) => item.key_value.toUpperCase() === keyArg.toUpperCase(),
+  );
+  if (!found) {
+    await send(`Key ${code(keyArg.toUpperCase())} tidak ditemukan di akun ini.`);
+    return;
+  }
+
+  const runtime = await loadRuntime(admin);
+  const limits: HwidResetLimits = {
+    limit: runtime.hwid.resetLimit,
+    windowHours: runtime.hwid.resetWindowHours,
+  };
+
+  let hardwareId: string | null = null;
+  const devices = await listKeyDevices(admin, found.id);
+
+  if (target.toLowerCase() !== "all") {
+    const index = Number.parseInt(target, 10);
+    if (!Number.isFinite(index) || index < 1 || index > devices.length) {
+      await send(
+        [
+          escapeHtml(`Nomor device tidak valid. Key ini punya ${devices.length} device:`),
+          ...devices.map((device, position) => `${position + 1}. ${escapeHtml(device.hardware_id)}`),
+        ].join("\n"),
+      );
+      return;
+    }
+    hardwareId = devices[index - 1].hardware_id;
+  }
+
+  if (fromText) {
+    // Dari perintah teks langsung eksekusi (sudah eksplisit menulis perintah).
+  }
+
+  const { data: keyRow, error: keyError } = await admin
+    .from("keys")
+    .select("*")
+    .eq("id", found.id)
+    .maybeSingle<KeyRow>();
+  if (keyError || !keyRow) {
+    await send(escapeHtml("Gagal membaca data key. Coba lagi."));
+    return;
+  }
+
+  const result = await resetKeyDevices(
+    {
+      admin,
+      userId: profile.id,
+      username: profile.username,
+      role: profile.role,
+      isOwner: profile.role === "owner",
+    },
+    keyRow,
+    { hardwareId, limits },
+  );
+
+  if (!result.ok) {
+    await send(`❌ Gagal reset: ${escapeHtml(result.error)}`);
+    return;
+  }
+
+  await send(
+    [
+      `✅ <b>Reset selesai</b> — ${result.removed} device dihapus`,
+      "",
+      `Key: ${code(found.key_value)}`,
+      result.cooldown && typeof result.cooldown.remaining === "number"
+        ? `Sisa kuota reset: ${bold(`${Math.max(0, result.cooldown.remaining)}×`)} per ${limits.windowHours} jam`
+        : "Owner bebas kuota reset.",
+      "",
+      escapeHtml("Pemakai tinggal login ulang — device baru terdaftar otomatis."),
+    ].join("\n"),
+    { keyboard: [MENU_HOME_ROW] },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Wizard generate: tool → version → preset → qty → device → konfirmasi
+// ---------------------------------------------------------------------------
+
+async function loadActiveTools(admin: SupabaseClient<Database>) {
+  const { data, error } = await admin
+    .from("tool_types")
+    .select("id, name, is_active")
+    .eq("is_active", true)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as { id: string; name: string }[];
+}
+
+async function loadActiveVersions(admin: SupabaseClient<Database>, toolId: string) {
+  const { data, error } = await admin
+    .from("tool_versions")
+    .select("id, name, is_active")
+    .eq("tool_type_id", toolId)
+    .eq("is_active", true)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as { id: string; name: string }[];
+}
+
+async function loadActivePresets(admin: SupabaseClient<Database>) {
+  const { data, error } = await admin
+    .from("duration_presets")
+    .select("id, name, days, credit_cost, is_active")
+    .eq("is_active", true)
+    .order("days", { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as { id: string; name: string; days: number | null; credit_cost: number }[];
+}
+
+async function renderWizardTools(admin: SupabaseClient<Database>, send: SendFn) {
+  const tools = await loadActiveTools(admin);
+  if (tools.length === 0) {
+    await send("Belum ada tool aktif. Hubungi Owner.", { keyboard: [MENU_HOME_ROW] });
+    return;
+  }
+
+  const rows = tools.map((tool, index) => [
+    { text: `🧰 ${tool.name}`, callback_data: `gentool:${index + 1}` },
+  ]);
+  rows.push([{ text: "❌ Batal", callback_data: "wizard:cancel" }]);
+  await send(
+    ["⚡ <b>Buat key baru</b> — langkah 1/5", "", "Pilih tool:"].join("\n"),
+    { keyboard: rows },
+  );
+}
+
+async function renderWizardVersions(admin: SupabaseClient<Database>, send: SendFn, toolNumber: number) {
+  const tools = await loadActiveTools(admin);
+  const tool = tools[toolNumber - 1];
+  if (!tool) {
+    await send("Daftar tool berubah. Ulangi wizard dari /menu ya.");
+    return;
+  }
+
+  const versions = await loadActiveVersions(admin, tool.id);
+  if (versions.length === 0) {
+    await send(`Tool ${escapeHtml(tool.name)} belum punya version aktif. Hubungi Owner.`);
+    return;
+  }
+
+  const rows = versions.map((version, index) => [
+    { text: `📦 ${version.name}`, callback_data: `genver:${toolNumber}:${index + 1}` },
+  ]);
+  rows.push([
+    { text: "◀️ Ganti tool", callback_data: "wizard:start" },
+    { text: "❌ Batal", callback_data: "wizard:cancel" },
+  ]);
+  await send(
+    ["📦 <b>Buat key baru</b> — langkah 2/5", "", `Pilih version untuk ${bold(tool.name)}:`].join("\n"),
+    { keyboard: rows },
+  );
+}
+
+async function renderWizardPresets(
+  admin: SupabaseClient<Database>,
+  send: SendFn,
+  toolNumber: number,
+  versionNumber: number,
+) {
+  const tools = await loadActiveTools(admin);
+  const tool = tools[toolNumber - 1];
+  if (!tool) {
+    await send("Daftar tool berubah. Ulangi wizard dari /menu ya.");
+    return;
+  }
+  const versions = await loadActiveVersions(admin, tool.id);
+  const version = versions[versionNumber - 1];
+  if (!version) {
+    await send("Daftar version berubah. Ulangi wizard dari /menu ya.");
+    return;
+  }
+
+  const presets = await loadActivePresets(admin);
+  if (presets.length === 0) {
+    await send("Belum ada preset durasi aktif. Hubungi Owner.");
+    return;
+  }
+
+  const rows = presets.map((preset, index) => {
+    const duration = preset.days === null || preset.days === 0 ? "lifetime" : `${preset.days} hr`;
+    return [
+      {
+        text: `⏱ ${preset.name} · ${duration} · ${formatNumber(preset.credit_cost)}cr`,
+        callback_data: `genpre:${toolNumber}:${versionNumber}:${index + 1}`,
+      },
+    ];
+  });
+  rows.push([
+    { text: "◀️ Ganti version", callback_data: `gentool:${toolNumber}` },
+    { text: "❌ Batal", callback_data: "wizard:cancel" },
+  ]);
+  await send(
+    ["⏱ <b>Buat key baru</b> — langkah 3/5", "", "Pilih durasi (harga per device):"].join("\n"),
+    { keyboard: rows },
+  );
+}
+
+async function renderWizardQty(
+  admin: SupabaseClient<Database>,
+  send: SendFn,
+  toolNumber: number,
+  versionNumber: number,
+  presetNumber: number,
+) {
+  const rows = QTY_CHOICES.map((qty) => [
+    { text: `${qty} key`, callback_data: `genqty:${toolNumber}:${versionNumber}:${presetNumber}:${qty}` },
+  ]);
+  rows.push([
+    { text: "◀️ Ganti preset", callback_data: `genver:${toolNumber}:${versionNumber}` },
+    { text: "❌ Batal", callback_data: "wizard:cancel" },
+  ]);
+  await send(
+    ["🔢 <b>Buat key baru</b> — langkah 4/5", "", "Berapa jumlah key?"].join("\n"),
+    { keyboard: rows },
+  );
+}
+
+async function renderWizardDevices(
+  admin: SupabaseClient<Database>,
+  send: SendFn,
+  toolNumber: number,
+  versionNumber: number,
+  presetNumber: number,
+  qty: number,
+) {
+  const rows = DEVICE_CHOICES.map((device) => [
+    { text: `${device} device/key`, callback_data: `gendev:${toolNumber}:${versionNumber}:${presetNumber}:${qty}:${device}` },
+  ]);
+  rows.push([
+    { text: "◀️ Ganti jumlah", callback_data: `genpre:${toolNumber}:${versionNumber}:${presetNumber}` },
+    { text: "❌ Batal", callback_data: "wizard:cancel" },
+  ]);
+  await send(
+    ["📱 <b>Buat key baru</b> — langkah 5/5", "", "Berapa device per key?"].join("\n"),
+    { keyboard: rows },
+  );
+}
+
+async function renderWizardConfirm(
+  admin: SupabaseClient<Database>,
+  profile: ProfileRow,
+  send: SendFn,
+  toolNumber: number,
+  versionNumber: number,
+  presetNumber: number,
+  qty: number,
+  device: number,
+) {
+  const preview = await resolveWizardPicks(admin, toolNumber, versionNumber, presetNumber);
+  if (!preview) {
+    await send("Pilihan tidak valid lagi (daftar mungkin berubah). Ulangi wizard dari /menu ya.");
+    return;
+  }
+
+  const totalCost = preview.preset.credit_cost * qty * device;
+  const isOwner = profile.role === "owner";
+  const saldoLine = isOwner
+    ? "Biaya: <b>bebas</b> (Owner)"
+    : `Biaya: <b>${formatNumber(totalCost)} credit</b> · saldo ${formatNumber(profile.credit)} → ${formatNumber(Math.max(0, profile.credit - totalCost))}`;
+  await send(
+    [
+      "🧾 <b>Cek terakhir sebelum buat:</b>",
+      "",
+      `Tool: ${bold(preview.tool.name)} ${escapeHtml(preview.version.name)}`,
+      `Durasi: ${escapeHtml(presetLabel(preview.preset))}`,
+      `Jumlah: ${qty} key × ${device} device`,
+      saldoLine,
+      "",
+      escapeHtml("Lanjutkan?"),
+    ].join("\n"),
+    {
+      keyboard: [
+        [
+          { text: `✅ Buat ${qty} key`, callback_data: `gen:go:${toolNumber}:${versionNumber}:${presetNumber}:${qty}:${device}` },
+          { text: "❌ Batal", callback_data: "wizard:cancel" },
+        ],
+      ],
+    },
+  );
+}
+
+function presetLabel(preset: { name: string; days: number | null }): string {
+  return preset.days === null || preset.days === 0
+    ? `${preset.name} (lifetime)`
+    : `${preset.name} (${preset.days} hari)`;
+}
+
+async function resolveWizardPicks(
+  admin: SupabaseClient<Database>,
+  toolNumber: number,
+  versionNumber: number,
+  presetNumber: number,
+): Promise<{
+  tool: { id: string; name: string };
+  version: { id: string; name: string };
+  preset: { id: string; name: string; days: number | null; credit_cost: number };
+} | null> {
+  const tools = await loadActiveTools(admin);
+  const tool = tools[toolNumber - 1];
+  if (!tool) return null;
+
+  const versions = await loadActiveVersions(admin, tool.id);
+  const version = versions[versionNumber - 1];
+  if (!version) return null;
+
+  const presets = await loadActivePresets(admin);
+  const preset = presets[presetNumber - 1];
+  if (!preset) return null;
+
+  return { tool, version, preset };
+}
+
+async function executeGenerate(
+  admin: SupabaseClient<Database>,
+  profile: ProfileRow,
+  send: SendFn,
+  toolNumber: number,
+  versionNumber: number,
+  presetNumber: number,
+  quantity: number,
+  maxDevice: number,
+) {
+  const picks = await resolveWizardPicks(admin, toolNumber, versionNumber, presetNumber);
+  if (!picks) {
+    await send(
+      escapeHtml("Pilihan tidak valid (daftar tool/preset mungkin berubah). Ulangi dari /menu → ⚡ Generate."),
+      { keyboard: mainMenuKeyboard() },
+    );
+    return;
+  }
+
+  const result = await generateKeys(
+    { admin, userId: profile.id, profile, isOwner: profile.role === "owner" },
+    {
+      toolTypeId: picks.tool.id,
+      toolVersionId: picks.version.id,
+      durationMode: "preset",
+      durationPresetId: picks.preset.id,
+      maxDevice: maxDevice > 0 ? maxDevice : 1,
+      quantity: quantity > 0 ? quantity : 1,
+      note: "Digenerate lewat bot Telegram",
+    },
+  );
+
+  await send(
+    [
+      `✅ <b>${result.keys.length} key berhasil dibuat!</b>`,
+      "",
+      ...result.keys.map((item) =>
+        item.expired_at
+          ? `${code(item.key_value)} — aktif s/d ${formatTanggalId(item.expired_at)}`
+          : `${code(item.key_value)} — lifetime`,
+      ),
+      "",
+      `${escapeHtml(result.summary.tool_name)} ${escapeHtml(result.summary.version_name)} · ${escapeHtml(result.summary.duration_label)}`,
+      `${result.keys.length} key × ${result.summary.max_device} device`,
+      `Biaya: ${formatNumber(result.summary.credit_cost)} credit · Sisa saldo: ${bold(formatNumber(result.summary.credit_balance_after))}`,
+    ].join("\n"),
+    { keyboard: [MENU_HOME_ROW] },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Penautan chat
+// ---------------------------------------------------------------------------
 
 /** Tautkan chat dengan kode sekali pakai. */
 async function linkChat(
   admin: SupabaseClient<Database>,
-  code: string,
+  codeValue: string,
   chat: string,
   username: string | null,
 ): Promise<{ ok: true; profile: ProfileRow } | { ok: false; error: string }> {
   const { data, error } = await admin
     .from("telegram_link_codes")
     .select("code, user_id, expires_at, used_at")
-    .eq("code", code)
+    .eq("code", codeValue)
     .maybeSingle<{ code: string; user_id: string; expires_at: string; used_at: string | null }>();
 
   if (error) return { ok: false, error: "Gagal memeriksa kode. Coba lagi." };
@@ -515,7 +1276,7 @@ async function linkChat(
   await admin
     .from("telegram_link_codes")
     .update({ used_at: new Date().toISOString() })
-    .eq("code", code);
+    .eq("code", codeValue);
 
   await recordActivity(admin, {
     actorId: profile.id,

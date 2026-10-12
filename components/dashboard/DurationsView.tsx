@@ -155,7 +155,7 @@ export function DurationsView() {
           />
         ) : (
           <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-[720px] text-body">
+            <table className="w-full min-w-[800px] text-body">
               <thead className="sticky top-0 bg-surface">
                 <tr className="border-b border-border text-left text-label text-muted">
                   <th scope="col" className="px-3 py-2 font-normal">

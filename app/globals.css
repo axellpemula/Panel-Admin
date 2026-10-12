@@ -103,6 +103,19 @@
   .ring-focus {
     @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70;
   }
+
+  /*
+   * Teks di tabel dashboard tidak pernah patah baris di tengah kata (mis.
+   * "Sisa credit" dipecah jadi "Sisa" / "credit" saat kolom sempit). Kolom yang
+   * butuh ruang lebih besar bikin tabel meluber & di-scroll horizontal, bukan
+   * wrap. Kolom teks panjang (catatan, detail, HWID) tetap memakai .truncate;
+   * kalau suatu saat perlu sel yang memang wrap, override dengan kelas
+   * `whitespace-normal`.
+   */
+  table th,
+  table td {
+    white-space: nowrap;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

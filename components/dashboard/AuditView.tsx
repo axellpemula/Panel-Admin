@@ -3,69 +3,81 @@
 import { Download, RefreshCw, Search, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
-import { ActivityLogTable } from "@/components/dashboard/ActivityLogTable";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Field, Input } from "@/components/ui/Form";
 import { Pagination } from "@/components/ui/Pagination";
-import { Select } from "@/components/ui/Select";
+import { Select, type SelectOption } from "@/components/ui/Select";
 import { SkeletonRows } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import type { TopReseller } from "@/lib/api/stats";
 import { apiGet, buildQuery } from "@/lib/api/client";
-import type { AuditAction, BanReason } from "@/lib/types/database";
-import { cn } from "@/lib/utils/cn";
+import { ACTIVITY_ACTIONS, ACTIVITY_ACTION_LABEL } from "@/lib/activity-labels";
+import { AUDIT_ACTIONS } from "@/lib/constants";
+import type { BanReason } from "@/lib/types/database";
 import {
   AUDIT_ACTION_LABEL,
   BAN_REASON_LABEL,
   formatDateTime,
 } from "@/lib/utils/format";
 
-interface AuditLogItem {
+interface MergedLogItem {
   id: string;
+  source: "key" | "activity";
   created_at: string;
   actor_id: string | null;
   actor_username: string | null;
   actor_role: string | null;
-  action: AuditAction;
-  key_id: string | null;
-  key_value: string;
-  key_owner_id: string | null;
+  action: string;
+  key_value: string | null;
   key_owner_username: string | null;
-  ban_reason: BanReason | null;
+  ban_reason: string | null;
   note: string | null;
+  target_label: string | null;
   detail: Record<string, unknown> | null;
 }
 
 interface AuditResponse {
-  items: AuditLogItem[];
+  items: MergedLogItem[];
   total: number;
   page: number;
   per_page: number;
   total_pages: number;
 }
 
-const ACTION_OPTIONS: { value: string; label: string }[] = [
+/** Pilihan filter aksi: dua grup (aksi key & aktivitas akun/sistem) dengan header nonaktif. */
+const ACTION_OPTIONS: SelectOption[] = [
   { value: "", label: "Semua aksi" },
-  { value: "key_ban", label: AUDIT_ACTION_LABEL.key_ban },
-  { value: "key_unban", label: AUDIT_ACTION_LABEL.key_unban },
-  { value: "key_auto_ban", label: AUDIT_ACTION_LABEL.key_auto_ban },
-  { value: "key_delete", label: AUDIT_ACTION_LABEL.key_delete },
-  { value: "hwid_reset", label: AUDIT_ACTION_LABEL.hwid_reset },
-  { value: "hwid_reset_all", label: AUDIT_ACTION_LABEL.hwid_reset_all },
+  { value: "__group_key", label: "— Aksi Key —", disabled: true },
+  ...AUDIT_ACTIONS.map((action) => ({
+    value: action,
+    label: AUDIT_ACTION_LABEL[action] ?? action,
+  })),
+  { value: "__group_activity", label: "— Aktivitas Akun & Sistem —", disabled: true },
+  ...ACTIVITY_ACTIONS.map((action) => ({
+    value: action,
+    label: ACTIVITY_ACTION_LABEL[action] ?? action,
+  })),
 ];
 
-function actionTone(action: AuditAction): string {
+function actionTone(action: string): string {
   if (action === "key_unban") return "text-active";
   if (action === "key_ban" || action === "key_auto_ban" || action === "key_delete") {
     return "text-banned";
   }
+  if (action === "api_key_revoke" || action === "telegram_disconnect") return "text-banned";
+  if (action === "security") return "text-expired";
+  if (action === "password_change" || action === "sessions_revoke" || action === "api_key_create") {
+    return "text-active";
+  }
   return "text-muted";
 }
 
+/** Ringkasan kolom `detail` untuk baris aksi key maupun aktivitas. */
 function detailSummary(detail: Record<string, unknown> | null): string {
   if (!detail) return "";
   const parts: string[] = [];
+
   if (typeof detail.hardware_id === "string") parts.push(`HWID: ${detail.hardware_id}`);
   if (typeof detail.removed === "number") parts.push(`removed: ${detail.removed}`);
   if (typeof detail.previous_status === "string") {
@@ -79,6 +91,21 @@ function detailSummary(detail: Record<string, unknown> | null): string {
       parts.push(`refund: ${refund.amount} credit`);
     }
   }
+
+  if (Array.isArray(detail.changes)) {
+    parts.push(`perubahan: ${(detail.changes as unknown[]).slice(0, 4).join(", ")}`);
+  }
+  if (typeof detail.amount === "number") parts.push(`jumlah: ${detail.amount}`);
+  if (typeof detail.balance_after === "number") parts.push(`saldo: ${detail.balance_after}`);
+  if (typeof detail.reason === "string") parts.push(`alasan: ${detail.reason}`);
+  if (typeof detail.revoked === "number" && detail.revoked >= 0) {
+    parts.push(`${detail.revoked} sesi diputus`);
+  }
+  if (typeof detail.key_prefix === "string") parts.push(`key: ${detail.key_prefix}…`);
+  if (typeof detail.token_prefix === "string") parts.push(`API key: ${detail.token_prefix}…`);
+  if (typeof detail.bot_username === "string") parts.push(`bot: @${detail.bot_username}`);
+  if (typeof detail.ip === "string") parts.push(`IP: ${detail.ip}`);
+
   return parts.length > 0 ? parts.join(" · ") : JSON.stringify(detail);
 }
 
@@ -91,7 +118,6 @@ export function AuditView({
 }) {
   const toast = useToast();
 
-  const [scope, setScope] = useState<"key" | "activity">("key");
   const [filters, setFilters] = useState({ from: "", to: "", action: "", actor: "", key: "" });
   const [keyInput, setKeyInput] = useState("");
   const [page, setPage] = useState(1);
@@ -206,68 +232,32 @@ export function AuditView({
         <div>
           <h1 className="text-title font-medium">Audit Log</h1>
           <p className="mt-1 text-body text-muted">
-            {scope === "key"
-              ? "Jejak semua aksi pada key: siapa yang ban, unban, hapus key, atau reset HWID — lengkap dengan alasan ban. Auto-ban (HWID)."
-              : "Aktivitas akun & sistem: ganti password, putus sesi, API key dibuat/dicabut, pengaturan diubah, topup/penyesuaian credit, dan bot Telegram."}
+            Jejak semua aktivitas dalam satu timeline: aksi pada key (ban, unban, hapus, reset
+            HWID — lengkap dengan alasan ban) dan aktivitas akun &amp; sistem (ganti password,
+            putus sesi, API key, pengaturan, credit, bot Telegram). Auto-ban (HWID) dicatat sistem.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div
-            role="group"
-            aria-label="Jenis log"
-            className="flex items-center gap-1 rounded-control border border-border bg-surface p-1"
+          <Button
+            size="sm"
+            onClick={() => void load()}
+            loading={loading}
+            icon={<RefreshCw size={16} strokeWidth={1.5} />}
+            aria-label="Muat ulang audit log"
+            title="Muat ulang audit log"
           >
-            {(
-              [
-                { value: "key" as const, label: "Aksi Key" },
-                { value: "activity" as const, label: "Aktivitas Akun & Sistem" },
-              ]
-            ).map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                aria-pressed={scope === option.value}
-                onClick={() => setScope(option.value)}
-                className={cn(
-                  "h-7 rounded-[calc(var(--radius-control)-2px)] px-2.5 text-label transition-colors duration-150",
-                  scope === option.value ? "bg-accent/15 text-accent" : "text-muted hover:text-text",
-                )}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-          {scope === "key" ? (
-            <>
-              <Button
-                size="sm"
-                onClick={() => void load()}
-                loading={loading}
-                icon={<RefreshCw size={16} strokeWidth={1.5} />}
-                aria-label="Muat ulang audit log"
-                title="Muat ulang audit log"
-              >
-              </Button>
-              <Button
-                size="sm"
-                variant="primary"
-                onClick={exportCsv}
-                loading={exporting}
-                icon={<Download size={16} strokeWidth={1.5} />}
-              >
-                Export CSV
-              </Button>
-            </>
-          ) : null}
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={exportCsv}
+            loading={exporting}
+            icon={<Download size={16} strokeWidth={1.5} />}
+          >
+            Export CSV
+          </Button>
         </div>
       </header>
-
-      {scope === "activity" ? (
-        <section className="card overflow-hidden">
-          <ActivityLogTable actorFilter={filters.actor || undefined} />
-        </section>
-      ) : (
-        <>
 
       <section className="card p-4">
         <div className="grid gap-3 lg:grid-cols-5">
@@ -355,10 +345,10 @@ export function AuditView({
         {loading ? (
           <SkeletonRows rows={6} columns={7} />
         ) : data.items.length === 0 ? (
-          <EmptyState message="Belum ada aksi tercatat di audit log" />
+          <EmptyState message="Belum ada aktivitas tercatat di audit log" />
         ) : (
           <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-[960px] text-body">
+            <table className="w-full min-w-[1080px] text-body">
               <thead className="sticky top-0 bg-surface">
                 <tr className="border-b border-border text-left text-label text-muted">
                   <th scope="col" className="px-3 py-2 font-normal">
@@ -371,7 +361,7 @@ export function AuditView({
                     Aksi
                   </th>
                   <th scope="col" className="px-3 py-2 font-normal">
-                    Key
+                    Key / Target
                   </th>
                   <th scope="col" className="px-3 py-2 font-normal">
                     Pemilik
@@ -387,6 +377,7 @@ export function AuditView({
               <tbody className="divide-y divide-border">
                 {data.items.map((item) => {
                   const detailText = detailSummary(item.detail);
+                  const isKeyAction = item.source === "key";
                   return (
                     <tr key={item.id} className="row-hover h-11">
                       <td className="whitespace-nowrap px-3 py-1.5 text-muted">
@@ -399,16 +390,29 @@ export function AuditView({
                         ) : null}
                       </td>
                       <td className={`whitespace-nowrap px-3 py-1.5 ${actionTone(item.action)}`}>
-                        {AUDIT_ACTION_LABEL[item.action] ?? item.action}
+                        {AUDIT_ACTION_LABEL[item.action] ??
+                          ACTIVITY_ACTION_LABEL[item.action] ??
+                          item.action}
                       </td>
                       <td className="whitespace-nowrap px-3 py-1.5">
-                        <span className="font-mono text-[13px] text-text">{item.key_value}</span>
+                        {isKeyAction ? (
+                          <span className="font-mono text-[13px] text-text">{item.key_value}</span>
+                        ) : (
+                          <span
+                            className="block max-w-[180px] truncate text-muted"
+                            title={item.target_label ?? ""}
+                          >
+                            {item.target_label ?? "-"}
+                          </span>
+                        )}
                       </td>
                       <td className="whitespace-nowrap px-3 py-1.5 text-muted">
-                        {item.key_owner_username ?? "-"}
+                        {isKeyAction ? (item.key_owner_username ?? "-") : "-"}
                       </td>
                       <td className="whitespace-nowrap px-3 py-1.5 text-muted">
-                        {item.ban_reason ? (BAN_REASON_LABEL[item.ban_reason] ?? item.ban_reason) : "-"}
+                        {item.ban_reason
+                          ? (BAN_REASON_LABEL[item.ban_reason as BanReason] ?? item.ban_reason)
+                          : "-"}
                       </td>
                       <td
                         className="max-w-[320px] truncate px-3 py-1.5 text-muted"
@@ -438,8 +442,6 @@ export function AuditView({
           />
         ) : null}
       </section>
-        </>
-      )}
     </div>
   );
 }

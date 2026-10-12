@@ -307,6 +307,10 @@ export function TelegramCard({ isOwner }: { isOwner: boolean }) {
                 Pesan error dari Telegram: {webhookError}
               </p>
             ) : null}
+            <p className="text-label text-muted">
+              Setelah memperbarui panel, tekan “Pasang ulang” sekali supaya tombol menu bot
+              (inline keyboard) ikut aktif di Telegram.
+            </p>
 
             <div className="border-t border-border pt-2">
               <Button
