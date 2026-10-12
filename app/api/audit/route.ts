@@ -1,7 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { ACTIVITY_ACTIONS, ACTIVITY_ACTION_LABEL, type ActivityAction } from "@/lib/activity-labels";
 import { withOwner } from "@/lib/api/auth";
-import { AUDIT_ACTIONS, BAN_REASONS } from "@/lib/constants";
+import {
+  listMergedLogs,
+  listMergedLogsForExport,
+  MERGED_LOG_SCAN_LIMIT,
+} from "@/lib/api/audit";
+import { AUDIT_ACTIONS } from "@/lib/constants";
 import type { AuditAction, BanReason } from "@/lib/types/database";
 import { AUDIT_ACTION_LABEL, BAN_REASON_LABEL, formatDateTime } from "@/lib/utils/format";
 import { toCsv } from "@/lib/utils/csv";
@@ -9,22 +15,15 @@ import { errorMessage, jsonError, jsonOk } from "@/lib/utils/http";
 
 export const dynamic = "force-dynamic";
 
-interface AuditLogItem {
-  id: string;
-  created_at: string;
-  actor_id: string | null;
-  actor_username: string | null;
-  actor_role: string | null;
-  action: AuditAction;
-  key_id: string | null;
-  key_value: string;
-  key_owner_id: string | null;
-  key_owner_username: string | null;
-  ban_reason: BanReason | null;
-  note: string | null;
-  detail: Record<string, unknown> | null;
-}
-
+/**
+ * Audit log terpadu (hanya Owner): merge `audit_logs` (aksi pada key — ban,
+ * unban, hapus, reset HWID, auto-ban) + `activity_logs` (aktivitas akun &
+ * sistem — ganti password, putus sesi, API key, pengaturan, credit, Telegram)
+ * menjadi satu daftar kronologis.
+ *
+ * Query: `from, to, action, actor` (user_id atau `system`), `key` (cari
+ * `key_value`, hanya menyaring baris aksi key), `page, per_page, format=csv`.
+ */
 export async function GET(request: NextRequest) {
   return withOwner(request, async (ctx) => {
     const params = request.nextUrl.searchParams;
@@ -45,57 +44,54 @@ export async function GET(request: NextRequest) {
       Math.max(5, Number.isFinite(perPageRaw) ? perPageRaw : 50),
     );
 
-    try {
-      let query = ctx.admin
-        .from("audit_logs")
-        .select("*", { count: "exact" })
-        .order("created_at", { ascending: false });
+    // Nilai `action` yang tidak dikenal diabaikan (bukan error) — sama seperti
+    // perilaku lama, supaya filter dari UI selalu aman.
+    const knownAction =
+      action && (AUDIT_ACTIONS.includes(action as AuditAction) || action in ACTIVITY_ACTION_LABEL)
+        ? action
+        : undefined;
 
-      if (AUDIT_ACTIONS.includes(action as AuditAction)) {
-        query = query.eq("action", action as AuditAction);
-      }
-      if (actorId === "system") {
-        query = query.is("actor_id", null);
-      } else if (actorId) {
-        query = query.eq("actor_id", actorId);
-      }
-      if (keySearch.length > 0) {
-        query = query.ilike("key_value", `%${keySearch.toUpperCase()}%`);
-      }
-      if (from) {
-        const fromDate = new Date(from);
-        if (!Number.isNaN(fromDate.getTime())) query = query.gte("created_at", fromDate.toISOString());
-      }
-      if (to) {
-        const toDate = new Date(to.includes("T") ? to : `${to}T23:59:59.999+07:00`);
-        if (!Number.isNaN(toDate.getTime())) query = query.lte("created_at", toDate.toISOString());
-      }
+    const toDateBoundary = (value: string): string | null => {
+      const date = new Date(value.includes("T") ? value : `${value}T23:59:59.999+07:00`);
+      return Number.isNaN(date.getTime()) ? null : date.toISOString();
+    };
+
+    const fromDate = from ? new Date(from) : null;
+    const toDate = to ? toDateBoundary(to) : null;
+
+    try {
+      const listOptions = {
+        from: fromDate && !Number.isNaN(fromDate.getTime()) ? fromDate.toISOString() : undefined,
+        to: toDate ?? undefined,
+        action: knownAction,
+        actor: actorId ?? undefined,
+        key: keySearch.length > 0 ? keySearch : undefined,
+      };
 
       if (format === "csv") {
-        const { data, error } = await query.range(0, 4999);
-        if (error) return jsonError(errorMessage(error), "server_error", 500);
-
-        const items = (data ?? []).map(normalizeLog);
+        const items = await listMergedLogsForExport(ctx.admin, listOptions);
         const csv = toCsv(
           [
             "tanggal",
+            "sumber",
             "aktor",
             "role",
             "aksi",
-            "key",
+            "key_target",
             "pemilik_key",
             "alasan_ban",
-            "note",
+            "catatan",
             "detail",
           ],
           items.map((item) => [
             item.created_at,
+            item.source === "key" ? "aksi key" : "akun & sistem",
             item.actor_username ?? "system",
             item.actor_role ?? "",
-            AUDIT_ACTION_LABEL[item.action] ?? item.action,
-            item.key_value,
+            AUDIT_ACTION_LABEL[item.action] ?? ACTIVITY_ACTION_LABEL[item.action] ?? item.action,
+            item.key_value ?? item.target_label ?? "",
             item.key_owner_username ?? "",
-            item.ban_reason ? (BAN_REASON_LABEL[item.ban_reason] ?? item.ban_reason) : "",
+            item.ban_reason ? (BAN_REASON_LABEL[item.ban_reason as BanReason] ?? item.ban_reason) : "",
             item.note ?? "",
             item.detail ? JSON.stringify(item.detail) : "",
           ]),
@@ -112,62 +108,19 @@ export async function GET(request: NextRequest) {
         });
       }
 
-      const start = (page - 1) * perPage;
-      const { data, error, count } = await query.range(start, start + perPage - 1);
-      if (error) return jsonError(errorMessage(error), "server_error", 500);
-
-      const items = (data ?? []).map(normalizeLog);
-      const total = count ?? items.length;
+      const result = await listMergedLogs(ctx.admin, {
+        ...listOptions,
+        page,
+        perPage,
+      });
 
       return jsonOk({
-        items,
-        total,
-        page,
-        per_page: perPage,
-        total_pages: Math.max(1, Math.ceil(total / perPage)),
+        ...result,
+        scanned_per_source: MERGED_LOG_SCAN_LIMIT,
         exported_at: formatDateTime(new Date()),
       });
     } catch (error) {
       return jsonError(errorMessage(error), "server_error", 500);
     }
   });
-}
-
-function normalizeLog(row: unknown): AuditLogItem {
-  const record = row as Record<string, unknown>;
-
-  let detail: Record<string, unknown> | null = null;
-  const rawDetail = record.detail;
-  if (rawDetail && typeof rawDetail === "object") {
-    detail = rawDetail as Record<string, unknown>;
-  } else if (typeof rawDetail === "string" && rawDetail.length > 0) {
-    try {
-      const parsed: unknown = JSON.parse(rawDetail);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        detail = parsed as Record<string, unknown>;
-      }
-    } catch {
-      detail = null;
-    }
-  }
-
-  const banReason = record.ban_reason;
-
-  return {
-    id: String(record.id),
-    created_at: String(record.created_at),
-    actor_id: record.actor_id ? String(record.actor_id) : null,
-    actor_username: (record.actor_username as string | null) ?? null,
-    actor_role: (record.actor_role as string | null) ?? null,
-    action: record.action as AuditAction,
-    key_id: record.key_id ? String(record.key_id) : null,
-    key_value: String(record.key_value ?? ""),
-    key_owner_id: record.key_owner_id ? String(record.key_owner_id) : null,
-    key_owner_username: (record.key_owner_username as string | null) ?? null,
-    ban_reason: BAN_REASONS.includes(banReason as BanReason)
-      ? (banReason as BanReason)
-      : null,
-    note: (record.note as string | null) ?? null,
-    detail,
-  };
 }
