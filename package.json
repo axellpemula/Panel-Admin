@@ -21,6 +21,7 @@
     "db:reset": "node dev/sqlite-cli.mjs reset",
     "verify:validate": "node dev/validate-e2e-test.mjs",
     "verify:sqlite": "node dev/sqlite-e2e-test.mjs",
+    "verify:features": "node dev/features-e2e-test.mjs",
     "test:focus": "node dev/focus-test.mjs",
     "test:sidebar": "node dev/sidebar-test.mjs"
   },

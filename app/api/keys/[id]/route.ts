@@ -4,6 +4,8 @@ import { loadKeyWithAccess, withAuth } from "@/lib/api/auth";
 import { getProfileUsername, recordAuditLog } from "@/lib/api/audit";
 import { addCredit, recordCreditLog, spendCredit } from "@/lib/api/credit";
 import { fetchDeviceCounts, getKeyDetail, refreshExpiredKeys } from "@/lib/api/keys";
+import { notifyLowCredit } from "@/lib/api/low-credit";
+import { loadRuntime } from "@/lib/api/settings";
 import { LIMITS } from "@/lib/constants";
 import type { DurationPresetRow, KeyRow } from "@/lib/types/database";
 import { errorMessage, jsonError, jsonOk } from "@/lib/utils/http";
@@ -67,6 +69,9 @@ export async function PUT(request: NextRequest, route: RouteParams) {
     const mode = typeof body.mode === "string" ? body.mode : "none";
     const updates: Partial<KeyRow> = {};
 
+    // Batas max device mengikuti konfigurasi runtime (Pengaturan).
+    const runtime = await loadRuntime(ctx.admin);
+
     // --- Note ---
     if (body.note !== undefined) {
       const note = asOptionalString(body.note, LIMITS.noteMax);
@@ -76,10 +81,14 @@ export async function PUT(request: NextRequest, route: RouteParams) {
 
     // --- Max device ---
     if (body.max_device !== undefined) {
-      const maxDevice = asInt(body.max_device, LIMITS.maxDeviceMin, LIMITS.maxDeviceMax);
+      const maxDevice = asInt(
+        body.max_device,
+        runtime.keys.maxDeviceMin,
+        runtime.keys.maxDeviceMax,
+      );
       if (maxDevice === null) {
         return jsonError(
-          `Max device harus antara ${LIMITS.maxDeviceMin} dan ${LIMITS.maxDeviceMax}`,
+          `Max device harus antara ${runtime.keys.maxDeviceMin} dan ${runtime.keys.maxDeviceMax}`,
           "validation_error",
           400,
         );
@@ -249,6 +258,16 @@ export async function PUT(request: NextRequest, route: RouteParams) {
         balanceAfter,
         note: `Perpanjang ${usedPreset?.name ?? "preset"} / ${key.key_value} / ${effectiveMaxDevice} device`,
         createdBy: ctx.userId,
+      });
+
+      // Saldo melewati ambang tipis → notifikasi (sekali per window).
+      notifyLowCredit(ctx.admin, {
+        userId: ctx.userId,
+        username: ctx.profile.username,
+        balanceBefore,
+        balanceAfter,
+        reason: `perpanjang ${key.key_value} (${usedPreset?.name ?? "preset"})`,
+        runtime,
       });
     }
 

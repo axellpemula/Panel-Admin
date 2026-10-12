@@ -20,6 +20,8 @@ Node.js v22.22.3 (verifikasi 2026-10-10; sebelumnya v20.20.2) · Next.js 14.2.15
 | `npx next lint` | ✅ `No ESLint warnings or errors` |
 | `npx next build` | ✅ semua route terkompilasi (10 halaman + 23 API route + middleware) |
 | build mode SQLite (`XLOOP_DB=sqlite`) | ✅ sama-sama terkompilasi; `better-sqlite3` tetap di luar bundle server (`serverComponentsExternalPackages`) |
+| `npm run verify:features` | ✅ 94/94 (tujuh fitur baru — rincian di bagian 9.10) |
+| `npx tsc --noEmit` (ulang setelah 9.10) | ✅ 0 error |
 
 Ringkasan build (production):
 
@@ -32,12 +34,17 @@ Route (app)                              Size     First Load JS
 ├ ƒ /api/durations, /api/durations/[id]
 ├ ƒ /api/resellers, /api/resellers/[id]
 ├ ƒ /api/credits
-├ ƒ /api/audit
+├ ƒ /api/audit, /api/activity, /api/validation-attempts
+├ ƒ /api/auth/password, /api/auth/sessions
+├ ƒ /api/api-keys, /api/api-keys/[id]
+├ ƒ /api/settings, /api/settings/telegram
+├ ƒ /api/telegram/link, /api/telegram/webhook
+├ ƒ /api/v1/me, presets, tools, keys, keys/[id], keys/[id]/hwid-reset, credits, [...path]
 ├ ƒ /api/validate
-├ ƒ /api/cron/cleanup
-├ ƒ /audit, /credits, /dashboard, /durations, /generate, /keys, /login, /resellers, /tools
+├ ƒ /api/cron/cleanup, /api/cron/digest
+├ ƒ /audit, /credits, /dashboard, /durations, /generate, /keys, /login, /resellers, /settings, /tools, /validation-attempts
 + First Load JS shared                     87.5 kB
-ƒ Middleware                              56.8 kB
+ƒ Middleware                              56.9 kB
 ```
 
 Recharts hanya muncul di chunk halaman dashboard (di-load `next/dynamic({ ssr: false })`),
@@ -624,6 +631,111 @@ Pemeriksaan yang dijalankan:
 Tes visual/keyboard lintas browser tidak dijalankan: workspace tidak menyediakan browser lokal atau
 Playwright. Focus trap, layout responsif, dan native color picker perlu konfirmasi manual di browser.
 
+### 9.10 Tujuh fitur tambahan: akun, notifikasi, API publik, bot Telegram (2026-10-12)
+
+Fitur yang ditambahkan: **(1)** ganti password sendiri + manajemen sesi, **(2)** notifikasi keluar
+(Telegram + webhook, termasuk ringkasan harian), **(4)** penyesuaian credit reseller oleh Owner,
+**(12)** konfigurasi runtime lewat tabel `app_settings`, **(14)** API key reseller + API publik
+`/api/v1`, **(15)** bot Telegram, dan **(16)** analitik anti-abuse di halaman Validation Attempts.
+
+Perubahan skema (dibuat di **kedua** mode — `migration.sql` untuk Postgres dan
+`lib/db/sqlite/schema.ts` untuk SQLite): tabel `app_settings`, `reseller_api_keys`, `api_request_logs`,
+`telegram_links`, `telegram_link_codes`, `notification_logs`, `activity_logs`; CHECK
+`credit_logs.action` diperluas dengan `adjustment`; `auth_sessions` (SQLite) mendapat kolom
+`ip`/`user_agent`. Migrasi SQLite berjalan otomatis sekali saat panel dijalankan dan tidak menghapus
+data lama.
+
+Suite baru `npm run verify:features` menjalankan panel sungguhan (`next dev` + SQLite sementara +
+server webhook lokal) dan memeriksa **91 hal**:
+
+| Kelompok | Yang diperiksa (ringkas) |
+|---|---|
+| Konfigurasi runtime (#12) | Default sesuai `lib/constants.ts`; reseller ditolak 403; nilai di luar rentang dijepit (`perIpPerMinute` 99999 → 1000, TTL 10 → 60 detik); perubahan tercatat di activity log |
+| Ganti password & sesi (#1) | Password lama salah → 401, password pendek → 400; sesi lain otomatis mati, sesi sekarang tetap hidup; password lama tidak bisa lagi dipakai; `DELETE /api/auth/sessions` memutus 2 sesi; semua tercatat di activity log |
+| Penyesuaian credit (#4) | +7/-3 credit, alasan wajib, 0 ditolak (400), melebihi saldo ditolak (409); muncul sebagai `adjustment` di credit log + activity log |
+| Analitik anti-abuse (#16) | Satu HWID dipakai 2 key → `distinct_keys` + `suspect`; satu key dari 3+ IP → `distinct_ips`; ambang & retensi ikut terkirim dan bisa diubah dari Pengaturan |
+| Notifikasi (#2) | `validation_burst` (brute-force per IP), `key_auto_ban` (5 HWID gagal → status `banned` + `ban_reason=auto_hwid` + audit sistem), `low_credit` (menyeberang ambang), `digest` harian + **anti-duplikat** (`skipped=deduped`), tercatat di `notification_logs`; saklar notifikasi & cron tanpa secret (401) |
+| API key + `/api/v1` (#14) | Token `xlp_…` tampil sekali, hanya hash yang tersimpan; 401 tanpa/salah token, 403 key reseller lain, 403 saat API dimatikan, 429 rate limit; generate memotong credit sesuai `credit_cost`; reset HWID satu device + kuota `hwid_reset_cooldown` (429); audit + `api_request_logs` + `requests_count`; cabut key → langsung 401; endpoint tak dikenal → 404 JSON + daftar endpoint |
+| Bot Telegram (#15) | Kode tautan 6 karakter + deep link; bot belum terhubung → 400; webhook secret salah → 401, benar → 200; `/start <kode>` menautkan chat (kode sekali pakai + activity log); `/help`, `/saldo`, `/preset`, `/keys` diproses tanpa error walau pengiriman ke Telegram gagal; `/unlink` dari bot & dari panel sama-sama melepas tautan dan tercatat |
+| Retensi & cleanup | `cron/cleanup` menghapus kode tautan kedaluwarsa/terpakai dan `notification_logs` lama memakai masa retensi dari Pengaturan |
+
+Pemeriksaan yang dijalankan (2026-10-12):
+
+| Pemeriksaan | Hasil |
+|---|---|
+| `npm run typecheck` | lulus |
+| `npm run lint` | lulus, tanpa warning |
+| `npm run verify:features` | **94/94** (4 notifikasi keluar benar-benar diterima server webhook uji; termasuk 3 pemeriksaan validasi parameter `/api/v1` dari audit 9.11) |
+| `npm run verify:sqlite` | 90/90 (tanpa regresi) |
+| `npm run verify:validate` | 28/28 (tanpa regresi) |
+| Pratinjau HTTP (`:3010`, mode SQLite) | `/settings` Owner menampilkan kartu Batas & Sistem, Telegram, dan API Key; reseller melihat kartu Telegram (tautan akun) + API Key tanpa seksi bot Owner; `/api/settings`, `/api/api-keys`, `/api/telegram/link`, `/api/cron/digest` menjawab wajar |
+| Penanganan kegagalan jaringan | `POST /api/settings/telegram {connect}` tanpa internet → 400 dengan pesan “Gagal menghubungi api.telegram.org …”, bukan 500; `test`/`set_webhook` gagal dengan pesan jelas |
+
+Catatan bug yang ketemu & diperbaiki selama pengujian ini:
+
+1. **Nilai JSON tidak ter-parse saat dibaca di mode SQLite** — `app_settings.value` (dan kolom JSON
+   lain) kembali sebagai string sehingga konfigurasi runtime & bot Telegram tampak tidak tersimpan.
+   Diselesaikan dengan helper `lib/utils/json.ts` (`parseJsonObject`/`parseJsonObjectOrEmpty`) yang
+   dipakai di `lib/api/settings.ts` dan `lib/api/activity.ts`.
+2. **Webhook sebagai satu-satunya tujuan notifikasi dianggap “tanpa tujuan”** (`skipped: no_target`),
+   sehingga notifikasi tidak pernah terkirim pada setup webhook-only. Kondisi diperbaiki di
+   `lib/api/notify.ts`.
+3. **`telegram_links.linked_at` NOT NULL di SQLite tanpa DEFAULT** (Postgres punya `DEFAULT NOW()`)
+   membuat penautan chat selalu gagal; kolom kini diisi eksplisit + DDL disamakan.
+4. **Kode error API publik** dimatikan memakai kode generik `forbidden` → sekarang `api_disabled`
+   supaya integrasi bisa membedakan dari 403 kepemilikan key.
+5. Pesan error `connect` Telegram kini membedakan masalah jaringan dari token yang ditolak.
+
+---
+
+## 9.11 Audit menyeluruh — fitur lama & fitur baru (2026-10-12)
+
+Cakupan audit: seluruh menu (Owner: Dashboard, Tool Management, Duration Setting, Key List,
+Generate Key, Reseller, Credit Log, Audit Log, Validation Attempts, Pengaturan; reseller: menu yang
+sama tanpa empat menu Owner), tampilan **anonim** (redirect ke `/login`), ~80 probe HTTP ke semua
+API route inti (auth, keys, tools, durations, resellers, credits, audit, activity,
+validation-attempts, api-keys, `/api/v1/*`, telegram, cron), pemeriksaan statis (paritas skema
+SQLite vs `migration.sql`, label aktivitas, pemakaian pengaturan runtime), dan pemeriksaan HTML
+server-render (id ganda, `label for`, jumlah heading, `alt`).
+
+Hasil ringkas:
+
+- **Tidak ada error 5xx** di semua probe; semua penolakan memakai status yang benar (400/401/403/404/409/429).
+- **Otorisasi konsisten**: reseller ditolak 403 di API Owner dan diarahkan 307 ke `/dashboard` pada
+  route Owner; reseller hanya melihat data miliknya sendiri (key, credit, activity) walau
+  parameternya diubah.
+- **Tidak ada bentrok skema** Postgres vs SQLite untuk tujuh tabel baru; semua method adapter SQLite
+  yang dipakai kode tersedia; 13 aksi `activity_logs` match dengan labelnya; semua jalur reset HWID
+  sudah memakai batas dari Pengaturan.
+- **Penjepitan nilai** berjalan: `per_page`, rentang tanggal, `quantity`, `max_device`, ambang
+  analitik; `PUT /api/settings` menolak body non-objek dan mengabaikan seksi/tombol tak dikenal.
+
+Yang diperbaiki karena audit ini:
+
+1. **Filter API publik yang salah ketik kini ditolak.** `GET /api/v1/keys?status=…` dan
+   `GET /api/v1/credits?action=…` sebelumnya mengabaikan nilai tak dikenal (salah ketik seperti
+   `status=expird` justru mengembalikan **semua** key). Sekarang `400 validation_error` +
+   daftar nilai yang sah.
+2. **`hardware_id` di `/api/v1/keys/{id}/hwid-reset` divalidasi** (16–128 karakter tanpa spasi,
+   sama seperti `/api/validate`) sehingga nilai mustahil dijawab `400`, bukan `404 “Device tidak
+   ditemukan”` yang menyesatkan.
+3. **Label form kini benar-benar terkait ke kolomnya.** 53 dari 56 pemakaian `Field` tidak mengisi
+   `htmlFor`, jadi klik teks label tidak memfokuskan kolom dan screen reader tidak membacakan nama
+   kolom. `Field` sekarang memasang `id` otomatis bila isinya tepat satu kontrol (`Input`,
+   `Textarea`, `Select`); pemakaian lain dibiarkan agar id tidak salah pasang.
+4. **Filter Activity Log tidak lagi menelan nilai salah.** `GET /api/activity?action=…` dengan aksi
+   tak dikenal sebelumnya menghapus filter (semua aktivitas terkirim); kini `400 validation_error` +
+   daftar aksi yang sah (UI hanya mengirim nilai dari daftar itu, jadi tidak ada perubahan perilaku
+   di panel).
+5. **Satu halaman = satu `<h1>`.** Judul di breadcrumb Topbar tidak lagi `<h1>` (sebelumnya setiap
+   halaman punya dua `<h1>` kembar), konten halaman tetap memakai `<h1>`.
+
+Catatan operasional (bukan bug aplikasi): suite `verify:*` menjalankan `next dev`-nya sendiri dan
+memakai folder `.next` yang sama dengan `npm run demo`. Jalankan keduanya berurutan dan **restart
+`npm run demo` setelah suite**; kalau tidak, dev server lama bisa menjawab 404 karena cache
+`.next`-nya tertimpa.
+
+
 ---
 
 ## 10. Yang butuh Supabase asli untuk diverifikasi
@@ -640,8 +752,19 @@ Berjalan penuh hanya setelah `migration.sql` dijalankan di project Supabase kamu
    database Supabase-mu dibuat sebelum fitur perpanjang / pengembalian credit ada.
 4. Fungsi SQL: `register_device` (locking `FOR UPDATE`), `spend_credit`, `add_credit`,
    `update_expired_keys`, `key_counts_by_version`, `reseller_summary`.
-5. Cron `/api/cron/cleanup` (butuh `CRON_SECRET` + jadwal Vercel).
-6. Seed akun Owner `owner@gmail.com` / `Axell123` — lalu ganti password.
+5. Cron `/api/cron/cleanup` dan `/api/cron/digest` (butuh `CRON_SECRET` + jadwal Vercel di
+   `vercel.json`: cleanup `0 3 * * *`, digest `0 1 * * *`).
+6. Seed akun Owner `owner@gmail.com` / `Axell123` — lalu ganti password dari Pengaturan.
+7. Tabel & constraint baru dari bagian 9.10: `app_settings`, `reseller_api_keys`, `api_request_logs`,
+   `telegram_links`, `telegram_link_codes`, `notification_logs`, `activity_logs`, serta
+   `credit_logs_action_check` yang sudah memuat `adjustment`. `migration.sql` idempotent — jalankan
+   ulang kalau database-mu dibuat sebelum tujuh fitur ini ada.
+8. Notifikasi & bot Telegram dengan kredensial asli: `connect` bot dari BotFather, webhook terpasang
+   di URL publik panel (atau tunnel saat uji lokal), `test` terkirim, penautan `/start <kode>`, dan
+   ringkasan harian `/api/cron/digest`. Di lingkungan uji kali ini `api.telegram.org` tidak bisa
+   dijangkau, jadi pengiriman nyata belum diverifikasi (jalur gagalnya sudah diuji).
+9. Ganti password & putus sesi di mode Supabase: `supabase.auth.signInWithPassword` untuk memverifikasi
+   password lama, `updateUser` untuk menyimpan yang baru, dan tombol “putus semua sesi lain”.
 
 Setelah deploy, uji cepat dengan perintah di README bagian 8 (cron) dan
 `docs/CLIENT_INTEGRATION.md` bagian 5 (validasi key dari sisi tool).

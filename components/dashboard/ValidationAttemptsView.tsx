@@ -60,6 +60,31 @@ interface FailingKey {
   last_seen: string;
 }
 
+interface SharedHwid {
+  hardware_id: string;
+  distinct_keys: number;
+  distinct_ips: number;
+  total: number;
+  succeeded: number;
+  failed: number;
+  keys: string[];
+  first_seen: string;
+  last_seen: string;
+  suspect: boolean;
+}
+
+interface MultiIpKey {
+  key_value: string;
+  distinct_ips: number;
+  total: number;
+  succeeded: number;
+  failed: number;
+  ips: string[];
+  top_reason: string | null;
+  last_seen: string;
+  suspect: boolean;
+}
+
 interface ValidationAttemptsResponse {
   range: { from: string; to: string; hourly: boolean };
   summary: {
@@ -74,6 +99,15 @@ interface ValidationAttemptsResponse {
   trend: ValidationTrendPoint[];
   suspicious_ips: SuspiciousIp[];
   top_failing_keys: FailingKey[];
+  shared_hwids: SharedHwid[];
+  multi_ip_keys: MultiIpKey[];
+  thresholds: {
+    suspect_failed_min: number;
+    brute_force_failures: number;
+    shared_hwid_keys_min: number;
+    multi_ip_keys_min: number;
+    retention_days: number;
+  };
   items: AttemptItem[];
   total: number;
   page: number;
@@ -220,6 +254,9 @@ export function ValidationAttemptsView() {
   const summary = data?.summary;
   const suspiciousIps = data?.suspicious_ips ?? [];
   const failingKeys = data?.top_failing_keys ?? [];
+  const sharedHwids = data?.shared_hwids ?? [];
+  const multiIpKeys = data?.multi_ip_keys ?? [];
+  const thresholds = data?.thresholds;
 
   return (
     <div className="space-y-6">
@@ -228,7 +265,8 @@ export function ValidationAttemptsView() {
           <h1 className="text-title font-medium">Validation Attempts</h1>
           <p className="mt-1 text-body text-muted">
             Semua percobaan validasi key yang tercatat: IP mencurigakan, key yang paling sering
-            gagal, dan tren per jam. Data disimpan 7 hari terakhir.
+            gagal, deteksi penyalahgunaan (HWID dipakai banyak key / key dipakai banyak IP), dan
+            tren per jam. Data disimpan {thresholds ? `${thresholds.retention_days} hari` : "sesuai pengaturan"} terakhir.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -429,6 +467,174 @@ export function ValidationAttemptsView() {
                       </tr>
                     );
                   })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </div>
+
+      {/* Deteksi anti-abuse (#16): pola berbagi pakai HWID & key */}
+      <div className="grid gap-6 xl:grid-cols-2">
+        <section className="card overflow-hidden">
+          <header className="border-b border-border px-4 py-3">
+            <h2 className="flex items-center gap-2 text-body font-medium">
+              HWID dipakai banyak key
+              {sharedHwids.some((item) => item.suspect) ? (
+                <Badge tone="banned">indikasi jual ulang</Badge>
+              ) : null}
+            </h2>
+            <p className="text-label text-muted">
+              Satu hardware ID muncul di ≥ 2 key berbeda
+              {thresholds
+                ? ` — ditandai mencurigakan mulai ${thresholds.shared_hwid_keys_min} key`
+                : ""}
+              .
+            </p>
+          </header>
+          {loading && !data ? (
+            <SkeletonRows rows={4} columns={5} />
+          ) : sharedHwids.length === 0 ? (
+            <EmptyState message="Tidak ada HWID yang dipakai lebih dari satu key — aman." />
+          ) : (
+            <div className="w-full overflow-x-auto">
+              <table className="w-full min-w-[620px] text-body">
+                <thead className="bg-surface">
+                  <tr className="border-b border-border text-left text-label text-muted">
+                    <th scope="col" className="px-3 py-2 font-normal">
+                      Hardware ID
+                    </th>
+                    <th scope="col" className="px-3 py-2 font-normal">
+                      Key berbeda
+                    </th>
+                    <th scope="col" className="px-3 py-2 font-normal">
+                      IP
+                    </th>
+                    <th scope="col" className="px-3 py-2 font-normal">
+                      Gagal / total
+                    </th>
+                    <th scope="col" className="px-3 py-2 font-normal">
+                      Terakhir
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {sharedHwids.map((item) => (
+                    <tr key={item.hardware_id} className="row-hover h-11">
+                      <td className="max-w-[240px] truncate px-3 py-1.5">
+                        <span
+                          className={`font-mono text-[13px] ${item.suspect ? "text-banned" : "text-text"}`}
+                          title={item.hardware_id}
+                        >
+                          {item.hardware_id}
+                        </span>
+                        {item.suspect ? (
+                          <Badge tone="banned" className="ml-2">
+                            mencurigakan
+                          </Badge>
+                        ) : null}
+                        <div className="text-label text-muted" title={item.keys.join(", ")}>
+                          {item.keys.slice(0, 3).join(", ")}
+                          {item.keys.length > 3 ? ` +${item.keys.length - 3}` : ""}
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-1.5 tabular-nums text-banned">
+                        {formatNumber(item.distinct_keys)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-1.5 tabular-nums">
+                        {formatNumber(item.distinct_ips)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-1.5 tabular-nums">
+                        {formatNumber(item.failed)} / {formatNumber(item.total)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-1.5 text-muted">
+                        {formatDateTime(item.last_seen)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        <section className="card overflow-hidden">
+          <header className="border-b border-border px-4 py-3">
+            <h2 className="flex items-center gap-2 text-body font-medium">
+              Key dipakai dari banyak IP
+              {multiIpKeys.some((item) => item.suspect) ? (
+                <Badge tone="banned">indikasi key dishare</Badge>
+              ) : null}
+            </h2>
+            <p className="text-label text-muted">
+              Satu key dipakai dari beberapa alamat IP berbeda
+              {thresholds
+                ? ` — ditandai mencurigakan mulai ${thresholds.multi_ip_keys_min} IP`
+                : ""}
+              .
+            </p>
+          </header>
+          {loading && !data ? (
+            <SkeletonRows rows={4} columns={5} />
+          ) : multiIpKeys.length === 0 ? (
+            <EmptyState message="Tidak ada key yang dipakai dari beberapa IP — aman." />
+          ) : (
+            <div className="w-full overflow-x-auto">
+              <table className="w-full min-w-[620px] text-body">
+                <thead className="bg-surface">
+                  <tr className="border-b border-border text-left text-label text-muted">
+                    <th scope="col" className="px-3 py-2 font-normal">
+                      Key
+                    </th>
+                    <th scope="col" className="px-3 py-2 font-normal">
+                      IP berbeda
+                    </th>
+                    <th scope="col" className="px-3 py-2 font-normal">
+                      Gagal / total
+                    </th>
+                    <th scope="col" className="px-3 py-2 font-normal">
+                      Alasan utama
+                    </th>
+                    <th scope="col" className="px-3 py-2 font-normal">
+                      Terakhir
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {multiIpKeys.map((item) => (
+                    <tr key={item.key_value} className="row-hover h-11">
+                      <td className="max-w-[240px] truncate px-3 py-1.5">
+                        <span
+                          className={`font-mono text-[13px] ${item.suspect ? "text-banned" : "text-text"}`}
+                        >
+                          {item.key_value}
+                        </span>
+                        {item.suspect ? (
+                          <Badge tone="banned" className="ml-2">
+                            mencurigakan
+                          </Badge>
+                        ) : null}
+                        <div className="text-label text-muted" title={item.ips.join(", ")}>
+                          {item.ips.slice(0, 3).join(", ")}
+                          {item.ips.length > 3 ? ` +${item.ips.length - 3}` : ""}
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-1.5 tabular-nums text-banned">
+                        {formatNumber(item.distinct_ips)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-1.5 tabular-nums">
+                        {formatNumber(item.failed)} / {formatNumber(item.total)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-1.5 text-muted">
+                        {item.top_reason
+                          ? (VALIDATION_REASON_LABEL[item.top_reason] ?? item.top_reason)
+                          : "-"}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-1.5 text-muted">
+                        {formatDateTime(item.last_seen)}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

@@ -1,9 +1,10 @@
 "use client";
 
-import { ArrowLeft, ExternalLink, KeyRound, Wallet } from "lucide-react";
+import { ArrowLeft, ExternalLink, KeyRound, SlidersHorizontal, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import { CreditAdjustModal } from "@/components/dashboard/CreditAdjustModal";
 import { KeyChartDynamic } from "@/components/dashboard/KeyChartDynamic";
 import { LoginHistoryCard } from "@/components/dashboard/LoginHistoryCard";
 import { StatCard, StatGrid } from "@/components/dashboard/StatCard";
@@ -50,6 +51,7 @@ export function ResellerDetailView({ id }: { id: string }) {
   const [topupOpen, setTopupOpen] = useState(false);
   const [topupAmount, setTopupAmount] = useState("10");
   const [topupNote, setTopupNote] = useState("");
+  const [adjustOpen, setAdjustOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -153,6 +155,14 @@ export function ResellerDetailView({ id }: { id: string }) {
             icon={<Wallet size={14} strokeWidth={1.5} />}
           >
             Topup Credit
+          </Button>
+          <Button
+            size="sm"
+            disabled={!detail}
+            onClick={() => setAdjustOpen(true)}
+            icon={<SlidersHorizontal size={14} strokeWidth={1.5} />}
+          >
+            Sesuaikan
           </Button>
           <Link href={`/keys?created_by=${id}`} className="inline-flex">
             <Button size="sm" icon={<KeyRound size={14} strokeWidth={1.5} />}>
@@ -297,6 +307,23 @@ export function ResellerDetailView({ id }: { id: string }) {
         userId={id}
         title="Riwayat login reseller"
         description="20 percobaan login terakhir ke akun reseller ini."
+      />
+
+      {/* Penyesuaian credit (tambah / kurang + alasan wajib) */}
+      <CreditAdjustModal
+        target={
+          adjustOpen && detail
+            ? {
+                id,
+                username: detail.reseller.username,
+                credit: detail.totals.credit,
+              }
+            : null
+        }
+        onClose={() => setAdjustOpen(false)}
+        onDone={() => {
+          void load();
+        }}
       />
 
       {/* Topup */}

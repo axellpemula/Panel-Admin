@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 
 import { withAuth } from "@/lib/api/auth";
 import { GenerateError, generateKeys } from "@/lib/api/generate";
+import { loadRuntime } from "@/lib/api/settings";
 import { LIMITS } from "@/lib/constants";
 import { jsonError, jsonOk } from "@/lib/utils/http";
 import { asInt, asOptionalString, asString } from "@/lib/utils/validate";
@@ -32,16 +33,31 @@ export async function POST(request: NextRequest) {
       return jsonError("Format request tidak valid", "validation_error", 400);
     }
 
+    // Batas quantity & max device mengikuti konfigurasi runtime (Pengaturan).
+    const runtime = await loadRuntime(ctx.admin);
+
     const toolTypeId = asString(body.tool_type_id, 64);
     const toolVersionId = asString(body.tool_version_id, 64);
-    const maxDevice = asInt(body.max_device ?? LIMITS.defaultMaxDevice, 1, 10);
-    const quantityMax = ctx.isOwner ? LIMITS.quantityOwnerMax : LIMITS.quantityResellerMax;
+    const maxDevice = asInt(
+      body.max_device ?? LIMITS.defaultMaxDevice,
+      runtime.keys.maxDeviceMin,
+      runtime.keys.maxDeviceMax,
+    );
+    const quantityMax = ctx.isOwner
+      ? runtime.keys.quantityOwnerMax
+      : runtime.keys.quantityResellerMax;
     const quantity = asInt(body.quantity ?? 1, 1, quantityMax);
     const note = asOptionalString(body.note, LIMITS.noteMax);
 
     if (!toolTypeId) return jsonError("Tool type wajib dipilih", "validation_error", 400);
     if (!toolVersionId) return jsonError("Version wajib dipilih", "validation_error", 400);
-    if (maxDevice === null) return jsonError("Max device harus antara 1 dan 10", "validation_error", 400);
+    if (maxDevice === null) {
+      return jsonError(
+        `Max device harus antara ${runtime.keys.maxDeviceMin} dan ${runtime.keys.maxDeviceMax}`,
+        "validation_error",
+        400,
+      );
+    }
     if (quantity === null) {
       return jsonError(`Quantity harus antara 1 dan ${quantityMax}`, "validation_error", 400);
     }

@@ -29,6 +29,20 @@ export function asInt(value: unknown, min: number, max: number): number | null {
   return rounded;
 }
 
+/**
+ * Angka bulat yang boleh negatif (untuk penyesuaian credit).
+ * `null` kalau bukan angka, di luar rentang, atau nol.
+ */
+export function asSignedInt(value: unknown, maxAbs = 1_000_000): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed =
+    typeof value === "number" ? value : Number(String(value).trim().replace(/[+\s]/g, ""));
+  if (!Number.isFinite(parsed)) return null;
+  const rounded = Math.trunc(parsed);
+  if (Math.abs(rounded) > maxAbs) return null;
+  return rounded;
+}
+
 export function asBool(value: unknown): boolean | null {
   if (typeof value === "boolean") return value;
   if (value === "true") return true;

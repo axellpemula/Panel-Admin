@@ -3,6 +3,7 @@
 import { Download, RefreshCw, Search, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { ActivityLogTable } from "@/components/dashboard/ActivityLogTable";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Field, Input } from "@/components/ui/Form";
@@ -13,6 +14,7 @@ import { useToast } from "@/components/ui/Toast";
 import type { TopReseller } from "@/lib/api/stats";
 import { apiGet, buildQuery } from "@/lib/api/client";
 import type { AuditAction, BanReason } from "@/lib/types/database";
+import { cn } from "@/lib/utils/cn";
 import {
   AUDIT_ACTION_LABEL,
   BAN_REASON_LABEL,
@@ -96,6 +98,7 @@ export function AuditView({
 }) {
   const toast = useToast();
 
+  const [scope, setScope] = useState<"key" | "activity">("key");
   const [filters, setFilters] = useState({ from: "", to: "", action: "", actor: "", key: "" });
   const [keyInput, setKeyInput] = useState("");
   const [page, setPage] = useState(1);
@@ -213,32 +216,69 @@ export function AuditView({
         <div>
           <h1 className="text-title font-medium">Audit Log</h1>
           <p className="mt-1 text-body text-muted">
-            Jejak semua aksi pada key: siapa yang ban, unban, hapus key, atau reset HWID —
-            lengkap dengan alasan ban. Auto-ban (HWID) hanya bisa di-unban oleh Owner.
+            {scope === "key"
+              ? "Jejak semua aksi pada key: siapa yang ban, unban, hapus key, atau reset HWID — lengkap dengan alasan ban. Auto-ban (HWID) hanya bisa di-unban oleh Owner."
+              : "Aktivitas akun & sistem: ganti password, putus sesi, API key dibuat/dicabut, pengaturan diubah, topup/penyesuaian credit, dan bot Telegram."}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            onClick={() => void load()}
-            loading={loading}
-            icon={<RefreshCw size={16} strokeWidth={1.5} />}
-            aria-label="Muat ulang audit log"
-            title="Muat ulang audit log"
+        <div className="flex flex-wrap items-center gap-2">
+          <div
+            role="group"
+            aria-label="Jenis log"
+            className="flex items-center gap-1 rounded-control border border-border bg-surface p-1"
           >
-            Muat ulang
-          </Button>
-          <Button
-            size="sm"
-            variant="primary"
-            onClick={exportCsv}
-            loading={exporting}
-            icon={<Download size={16} strokeWidth={1.5} />}
-          >
-            Export CSV
-          </Button>
+            {(
+              [
+                { value: "key" as const, label: "Aksi Key" },
+                { value: "activity" as const, label: "Aktivitas Akun & Sistem" },
+              ]
+            ).map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={scope === option.value}
+                onClick={() => setScope(option.value)}
+                className={cn(
+                  "h-7 rounded-[calc(var(--radius-control)-2px)] px-2.5 text-label transition-colors duration-150",
+                  scope === option.value ? "bg-accent/15 text-accent" : "text-muted hover:text-text",
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          {scope === "key" ? (
+            <>
+              <Button
+                size="sm"
+                onClick={() => void load()}
+                loading={loading}
+                icon={<RefreshCw size={16} strokeWidth={1.5} />}
+                aria-label="Muat ulang audit log"
+                title="Muat ulang audit log"
+              >
+                Muat ulang
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={exportCsv}
+                loading={exporting}
+                icon={<Download size={16} strokeWidth={1.5} />}
+              >
+                Export CSV
+              </Button>
+            </>
+          ) : null}
         </div>
       </header>
+
+      {scope === "activity" ? (
+        <section className="card overflow-hidden">
+          <ActivityLogTable actorFilter={filters.actor || undefined} />
+        </section>
+      ) : (
+        <>
 
       <section className="card p-4">
         <div className="grid gap-3 lg:grid-cols-5">
@@ -409,6 +449,8 @@ export function AuditView({
           />
         ) : null}
       </section>
+        </>
+      )}
     </div>
   );
 }

@@ -144,8 +144,9 @@ CREATE TABLE IF NOT EXISTS credit_logs (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Untuk database yang dibuat sebelum aksi 'extend' (perpanjang key) dan 'refund'
--- (pengembalian credit) ada. Idempotent: aman dijalankan berulang.
+-- Untuk database yang dibuat sebelum aksi 'extend' (perpanjang key), 'refund'
+-- (pengembalian credit), dan 'adjustment' (penyesuaian saldo oleh Owner) ada.
+-- Idempotent: aman dijalankan berulang.
 DO $$
 BEGIN
   IF EXISTS (
@@ -155,6 +156,7 @@ BEGIN
       AND (
         pg_get_constraintdef(oid) NOT LIKE '%extend%'
         OR pg_get_constraintdef(oid) NOT LIKE '%refund%'
+        OR pg_get_constraintdef(oid) NOT LIKE '%adjustment%'
       )
   ) THEN
     ALTER TABLE credit_logs DROP CONSTRAINT credit_logs_action_check;
@@ -167,7 +169,7 @@ BEGIN
   ) THEN
     ALTER TABLE credit_logs
       ADD CONSTRAINT credit_logs_action_check
-      CHECK (action IN ('topup', 'generate', 'extend', 'refund'));
+      CHECK (action IN ('topup', 'generate', 'extend', 'refund', 'adjustment'));
   END IF;
 END $$;
 
@@ -283,6 +285,152 @@ CREATE TABLE IF NOT EXISTS login_logs (
 
 CREATE INDEX IF NOT EXISTS idx_login_logs_user_time ON login_logs (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_login_logs_created_at ON login_logs (created_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- App Settings (konfigurasi runtime yang diatur Owner dari menu Pengaturan)
+--
+-- Satu baris per dokumen:
+--   'runtime'  → override limit/analitik/API/notifikasi (JSON),
+--   'telegram' → kredensial bot Telegram (JSON, RAHASIA — tidak pernah dikirim
+--                kembali ke browser, hanya statusnya).
+--
+-- RLS aktif tanpa policy: hanya service_role (API route) yang bisa membaca/menulis.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value JSONB,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_by UUID REFERENCES profiles(id) ON DELETE SET NULL
+);
+ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
+
+-- ---------------------------------------------------------------------------
+-- API key reseller (akses mesin ke /api/v1 — lihat docs/RESELLER_API.md)
+--
+-- Token asli HANYA ditampilkan sekali saat dibuat. Yang disimpan:
+--   token_prefix → 12 karakter pertama (untuk ditampilkan di panel),
+--   token_hash   → sha256(token) — cukup dibandingkan konstanta-waktu.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS reseller_api_keys (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  name TEXT NOT NULL,
+  token_prefix TEXT NOT NULL,
+  token_hash TEXT UNIQUE NOT NULL,
+  is_active BOOLEAN DEFAULT true,
+  last_used_at TIMESTAMPTZ,
+  requests_count INTEGER DEFAULT 0,
+  created_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  revoked_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_reseller_api_keys_user ON reseller_api_keys (user_id);
+CREATE INDEX IF NOT EXISTS idx_reseller_api_keys_hash ON reseller_api_keys (token_hash);
+ALTER TABLE reseller_api_keys ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Owner manages api keys" ON reseller_api_keys;
+CREATE POLICY "Owner manages api keys" ON reseller_api_keys FOR ALL USING (is_owner());
+
+DROP POLICY IF EXISTS "Reseller sees own api keys" ON reseller_api_keys;
+CREATE POLICY "Reseller sees own api keys" ON reseller_api_keys
+  FOR SELECT USING (user_id = auth.uid());
+
+-- ---------------------------------------------------------------------------
+-- Log request /api/v1 — dipakai untuk rate limit per token (query, bukan
+-- in-memory, supaya aman di serverless) + statistik pemakaian API.
+-- Dibersihkan cron (retensi diatur di Pengaturan).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS api_request_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  api_key_id UUID REFERENCES reseller_api_keys(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  method TEXT,
+  path TEXT,
+  status INTEGER,
+  ip TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_request_logs_key_time
+  ON api_request_logs (api_key_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_api_request_logs_created_at
+  ON api_request_logs (created_at DESC);
+ALTER TABLE api_request_logs ENABLE ROW LEVEL SECURITY;
+
+-- ---------------------------------------------------------------------------
+-- Telegram: tautan akun panel ⇄ chat Telegram (bot dua arah + notifikasi)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS telegram_links (
+  user_id UUID PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+  chat_id TEXT UNIQUE NOT NULL,
+  username TEXT,
+  linked_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE telegram_links ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users see own telegram link" ON telegram_links;
+CREATE POLICY "Users see own telegram link" ON telegram_links
+  FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Owner sees all telegram links" ON telegram_links;
+CREATE POLICY "Owner sees all telegram links" ON telegram_links FOR SELECT USING (is_owner());
+
+-- Kode sekali pakai untuk menautkan chat (`/start <kode>`).
+CREATE TABLE IF NOT EXISTS telegram_link_codes (
+  code TEXT PRIMARY KEY,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_telegram_link_codes_user ON telegram_link_codes (user_id);
+ALTER TABLE telegram_link_codes ENABLE ROW LEVEL SECURITY;
+
+-- ---------------------------------------------------------------------------
+-- Notification logs (outbox) — jejak notifikasi keluar (Telegram/webhook) +
+-- dasar anti-spam (dedupe_key: satu notifikasi per kejadian per window).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS notification_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  event TEXT NOT NULL,
+  dedupe_key TEXT,
+  target TEXT NOT NULL,
+  success BOOLEAN NOT NULL,
+  summary TEXT,
+  detail JSONB
+);
+CREATE INDEX IF NOT EXISTS idx_notification_logs_dedupe
+  ON notification_logs (dedupe_key, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notification_logs_created_at
+  ON notification_logs (created_at DESC);
+ALTER TABLE notification_logs ENABLE ROW LEVEL SECURITY;
+
+-- ---------------------------------------------------------------------------
+-- Activity logs — aktivitas akun & sistem yang BUKAN aksi pada key
+-- (ganti password, putus sesi, API key dibuat/dicabut, pengaturan diubah,
+-- Telegram ditautkan, dsb). Pelengkap audit_logs; sama-sama hanya untuk Owner.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS activity_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  actor_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  actor_username TEXT,
+  actor_role TEXT CHECK (actor_role IN ('owner', 'reseller', 'system')),
+  action TEXT NOT NULL,
+  target_type TEXT,
+  target_id TEXT,
+  target_label TEXT,
+  detail JSONB
+);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_created_at ON activity_logs (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_action ON activity_logs (action);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_actor ON activity_logs (actor_id);
+ALTER TABLE activity_logs ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Owner sees all activity logs" ON activity_logs;
+CREATE POLICY "Owner sees all activity logs" ON activity_logs FOR ALL USING (is_owner());
 
 -- ============================================================================
 -- 2. INDEX PERFORMA

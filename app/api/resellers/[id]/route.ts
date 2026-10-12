@@ -1,12 +1,23 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-import { addCredit } from "@/lib/api/credit";
+import { recordActivity } from "@/lib/api/activity";
 import { isUuid, withOwner } from "@/lib/api/auth";
+import { addCredit, spendCredit } from "@/lib/api/credit";
+import { notifyLowCredit } from "@/lib/api/low-credit";
+import { loadRuntime } from "@/lib/api/settings";
 import { recentActivity, resellerStats, resellerSummary } from "@/lib/api/stats";
 import type { ProfileRow } from "@/lib/types/database";
 import { errorMessage, jsonError, jsonOk } from "@/lib/utils/http";
-import { asBool, asEmail, asInt, asOptionalString, asPassword, asString } from "@/lib/utils/validate";
+import {
+  asBool,
+  asEmail,
+  asInt,
+  asOptionalString,
+  asPassword,
+  asSignedInt,
+  asString,
+} from "@/lib/utils/validate";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +55,7 @@ export async function GET(request: NextRequest, route: RouteParams) {
 
     const { profile, error } = await loadReseller(ctx, id);
     if (error) return error;
+    if (!profile) return jsonError("Reseller tidak ditemukan", "not_found", 404);
 
     const historyRaw = Number(request.nextUrl.searchParams.get("history_limit") ?? 25);
     const historyLimit = Number.isFinite(historyRaw) ? Math.min(200, Math.max(1, historyRaw)) : 25;
@@ -76,6 +88,7 @@ export async function GET(request: NextRequest, route: RouteParams) {
 /**
  * PUT /api/resellers/[id] — aksi owner terhadap satu reseller:
  * - { action: "topup", amount, note? }
+ * - { action: "adjust_credit", amount, reason, note? }  (amount boleh negatif)
  * - { action: "set_active", is_active }
  * - { action: "reset_password", password }
  * - { action: "update", username?, email? }
@@ -87,11 +100,13 @@ export async function PUT(request: NextRequest, route: RouteParams) {
 
     const { profile, error } = await loadReseller(ctx, id);
     if (error) return error;
+    if (!profile) return jsonError("Reseller tidak ditemukan", "not_found", 404);
 
     let body: {
       action?: unknown;
       amount?: unknown;
       note?: unknown;
+      reason?: unknown;
       is_active?: unknown;
       password?: unknown;
       username?: unknown;
@@ -131,7 +146,116 @@ export async function PUT(request: NextRequest, route: RouteParams) {
 
       if (logError) console.warn("[resellers] credit_logs gagal:", logError.message);
 
+      await recordActivity(ctx.admin, {
+        actorId: ctx.userId,
+        actorUsername: ctx.profile.username,
+        actorRole: ctx.profile.role,
+        action: "credit_topup",
+        targetType: "reseller",
+        targetId: id,
+        targetLabel: profile.username,
+        detail: { amount, balance_after: balance, note },
+      });
+
+      notifyLowCredit(ctx.admin, {
+        userId: id,
+        username: profile.username,
+        balanceBefore: profile.credit,
+        balanceAfter: balance,
+        reason: `topup oleh ${ctx.profile.username}`,
+        runtime: await loadRuntime(ctx.admin),
+      });
+
       return jsonOk({ reseller: { ...(profile as ProfileRow), credit: balance }, balance });
+    }
+
+    // --- PENYESUAIAN CREDIT (bisa menambah atau mengurangi, wajib alasan) ---
+    if (action === "adjust_credit") {
+      const amount = asSignedInt(body.amount, 1_000_000);
+      if (amount === null || amount === 0) {
+        return jsonError("Jumlah penyesuaian tidak valid (angka, tidak boleh 0)", "validation_error", 400);
+      }
+
+      // Alasan wajib: penyesuaian tanpa alasan tidak bisa diaudit.
+      const reason = (asOptionalString(body.reason, 200) ?? "").trim();
+      if (reason.length < 3) {
+        return jsonError("Alasan penyesuaian wajib diisi (minimal 3 karakter)", "validation_error", 400);
+      }
+      const extraNote = asOptionalString(body.note, 300);
+
+      const before = Number(profile.credit) || 0;
+
+      if (amount < 0 && before + amount < 0) {
+        return jsonError(
+          `Saldo reseller tidak cukup: saldo sekarang ${before}, pengurangan ${Math.abs(amount)}.`,
+          "conflict",
+          409,
+        );
+      }
+
+      let balance: number;
+      try {
+        balance =
+          amount > 0
+            ? await addCredit(ctx.admin, id, amount)
+            : await spendCredit(ctx.admin, id, Math.abs(amount));
+      } catch (err) {
+        return jsonError(errorMessage(err), "server_error", 500);
+      }
+
+      if (balance < 0) {
+        return jsonError("Gagal menyesuaikan credit (saldo tidak cukup / gagal simpan)", "conflict", 409);
+      }
+
+      const note = extraNote
+        ? `${reason} — ${extraNote} (oleh ${ctx.profile.username})`
+        : `${reason} (oleh ${ctx.profile.username})`;
+
+      const { error: logError } = await ctx.admin.from("credit_logs").insert({
+        user_id: id,
+        action: "adjustment",
+        amount,
+        balance_after: balance,
+        note,
+        created_by: ctx.userId,
+      });
+      if (logError) console.warn("[resellers] credit_logs (adjustment) gagal:", logError.message);
+
+      await recordActivity(ctx.admin, {
+        actorId: ctx.userId,
+        actorUsername: ctx.profile.username,
+        actorRole: ctx.profile.role,
+        action: "credit_adjust",
+        targetType: "reseller",
+        targetId: id,
+        targetLabel: profile.username,
+        detail: {
+          amount,
+          balance_before: before,
+          balance_after: balance,
+          reason,
+          note: extraNote,
+        },
+      });
+
+      // Saldo turun melewati ambang tipis → Owner (dan reseller) diberi tahu.
+      if (amount < 0) {
+        notifyLowCredit(ctx.admin, {
+          userId: id,
+          username: profile.username,
+          balanceBefore: before,
+          balanceAfter: balance,
+          reason: `penyesuaian oleh ${ctx.profile.username}: ${reason}`,
+          runtime: await loadRuntime(ctx.admin),
+        });
+      }
+
+      return jsonOk({
+        reseller: { ...(profile as ProfileRow), credit: balance },
+        balance,
+        adjusted: amount,
+        reason,
+      });
     }
 
     // --- AKTIF / NONAKTIF ---

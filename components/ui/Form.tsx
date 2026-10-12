@@ -1,6 +1,17 @@
 "use client";
 
-import { useId, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
+import {
+  cloneElement,
+  isValidElement,
+  Children,
+  useId,
+  type InputHTMLAttributes,
+  type ReactElement,
+  type ReactNode,
+  type TextareaHTMLAttributes,
+} from "react";
+
+import { Select } from "@/components/ui/Select";
 
 import { cn } from "@/lib/utils/cn";
 
@@ -22,13 +33,31 @@ export function Field({
   required?: boolean;
   className?: string;
 }) {
+  // Kalau pemanggil tidak memberi `htmlFor`, label dikaitkan otomatis ke satu-satunya
+  // kontrol di dalam Field (Input/Textarea/Select). Efeknya: klik teks label memfokuskan
+  // kolom, dan screen reader membacakan nama kolom. Field yang isinya >1 kontrol atau
+  // dibungkus <div> sendiri dibiarkan apa adanya supaya id tidak salah pasang.
+  const autoId = useId();
+  const onlyChild = Children.count(children) === 1 ? Children.only(children) : null;
+  const autoControl =
+    onlyChild !== null &&
+    isValidElement(onlyChild) &&
+    (onlyChild.type === Input || onlyChild.type === Textarea || onlyChild.type === Select) &&
+    !(onlyChild.props as { id?: string }).id
+      ? onlyChild
+      : null;
+  const controlId = htmlFor ?? (autoControl ? autoId : undefined);
+  const content = autoControl
+    ? cloneElement(autoControl as ReactElement<{ id?: string }>, { id: autoId })
+    : children;
+
   return (
     <div className={cn("space-y-1.5", className)}>
-      <label htmlFor={htmlFor} className="block text-label text-muted">
+      <label htmlFor={controlId} className="block text-label text-muted">
         {label}
         {required ? <span className="ml-1 text-accent">*</span> : null}
       </label>
-      {children}
+      {content}
       {error ? (
         <p className="text-label text-banned">{error}</p>
       ) : hint ? (

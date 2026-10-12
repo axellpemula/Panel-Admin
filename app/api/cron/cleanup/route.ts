@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-import { RATE_LIMIT } from "@/lib/constants";
+import { loadRuntime, publicSettings } from "@/lib/api/settings";
 import { cronSecret, dbMode } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -14,9 +14,12 @@ export const runtime = "nodejs";
  * Dilindungi header `Authorization: Bearer CRON_SECRET`.
  *
  * Tugas:
- * 1. Hapus validation_attempts lebih dari 7 hari.
- * 2. Jalankan update_expired_keys() supaya status key selalu akurat.
- * 3. (Mode SQLite) Bersihkan auth_sessions yang sudah kedaluwarsa.
+ * 1. Hapus validation_attempts, api_request_logs, dan notification_logs yang
+ *    sudah lebih tua dari masa retensi (bisa diatur Owner di Pengaturan).
+ * 2. Hapus kode tautan Telegram (telegram_link_codes) yang sudah kedaluwarsa
+ *    atau sudah dipakai — kode hanya berlaku 10 menit.
+ * 3. Jalankan update_expired_keys() supaya status key selalu akurat.
+ * 4. (Mode SQLite) Bersihkan auth_sessions yang sudah kedaluwarsa.
  */
 export async function GET(request: NextRequest) {
   const expected = cronSecret();
@@ -45,9 +48,10 @@ export async function GET(request: NextRequest) {
   const admin = createAdminClient();
   const startedAt = Date.now();
 
-  const cutoff = new Date(
-    Date.now() - RATE_LIMIT.retentionDays * 86_400_000,
-  ).toISOString();
+  // Masa retensi log dibaca dari Pengaturan (default: lib/constants.ts).
+  const runtime = await loadRuntime(admin);
+  const cutoffFor = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+  const cutoff = cutoffFor(runtime.retention.attemptsDays);
 
   const deleted = await admin
     .from("validation_attempts")
@@ -60,6 +64,46 @@ export async function GET(request: NextRequest) {
       { ok: false, error: "Gagal membersihkan validation_attempts" },
       { status: 500 },
     );
+  }
+
+  // Log request API & riwayat notifikasi ikut dibersihkan (bucket waktu sendiri).
+  const apiLogCutoff = cutoffFor(runtime.retention.apiLogsDays);
+  const deletedApiLogs = await admin
+    .from("api_request_logs")
+    .delete({ count: "exact" })
+    .lt("created_at", apiLogCutoff);
+  if (deletedApiLogs.error) {
+    console.warn("[cron] hapus api_request_logs gagal:", deletedApiLogs.error.message);
+  }
+
+  const notifyCutoff = cutoffFor(runtime.retention.notificationDays);
+  const deletedNotifications = await admin
+    .from("notification_logs")
+    .delete({ count: "exact" })
+    .lt("created_at", notifyCutoff);
+  if (deletedNotifications.error) {
+    console.warn("[cron] hapus notification_logs gagal:", deletedNotifications.error.message);
+  }
+
+  // Kode tautan Telegram: sekali pakai + berlaku 10 menit, jadi kode yang sudah
+  // dipakai ATAU kedaluwarsa >1 hari aman dibuang.
+  const linkCodeCutoff = new Date(Date.now() - 86_400_000).toISOString();
+  const deletedUsedCodes = await admin
+    .from("telegram_link_codes")
+    .delete({ count: "exact" })
+    .not("used_at", "is", null)
+    .lt("created_at", linkCodeCutoff);
+  if (deletedUsedCodes.error) {
+    console.warn("[cron] hapus telegram_link_codes (terpakai) gagal:", deletedUsedCodes.error.message);
+  }
+
+  const deletedExpiredCodes = await admin
+    .from("telegram_link_codes")
+    .delete({ count: "exact" })
+    .is("used_at", null)
+    .lt("expires_at", linkCodeCutoff);
+  if (deletedExpiredCodes.error) {
+    console.warn("[cron] hapus telegram_link_codes (kedaluwarsa) gagal:", deletedExpiredCodes.error.message);
   }
 
   const expired = await admin.rpc("update_expired_keys");
@@ -95,7 +139,11 @@ export async function GET(request: NextRequest) {
     mode: dbMode(),
     deleted_attempts: deleted.count ?? 0,
     deleted_sessions: deletedSessions,
+    deleted_api_logs: deletedApiLogs.count ?? 0,
+    deleted_notifications: deletedNotifications.count ?? 0,
+    deleted_link_codes: (deletedUsedCodes.count ?? 0) + (deletedExpiredCodes.count ?? 0),
     cutoff,
+    retention: publicSettings(runtime).retention,
     expired_keys_updated: true,
     duration_ms: Date.now() - startedAt,
   });
