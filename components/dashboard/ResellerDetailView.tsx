@@ -37,11 +37,6 @@ interface ResellerDetail {
 
 const KEY_PREVIEW = 10;
 
-/**
- * Detail reseller penuh (Owner): ringkasan + chart 7 hari + key terbaru +
- * riwayat credit lengkap + riwayat login. Aksi lain (edit, password, hapus)
- * tetap di daftar /resellers supaya satu sumber kebenaran.
- */
 export function ResellerDetailView({ id }: { id: string }) {
   const toast = useToast();
   const [detail, setDetail] = useState<ResellerDetail | null>(null);

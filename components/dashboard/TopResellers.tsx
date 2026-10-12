@@ -4,7 +4,6 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import type { TopReseller } from "@/lib/api/stats";
 import { formatNumber } from "@/lib/utils/format";
 
-/** Daftar 5 reseller dengan key terbanyak (owner dashboard). */
 export function TopResellers({ items }: { items: TopReseller[] }) {
   return (
     <section className="card overflow-hidden">

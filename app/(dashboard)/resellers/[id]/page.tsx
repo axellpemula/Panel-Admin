@@ -11,7 +11,6 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-/** Halaman detail satu reseller (Owner): statistik, chart, key, credit, login. */
 export default async function ResellerDetailPage({ params }: { params: { id: string } }) {
   await requireOwner(`/resellers/${params.id}`);
   if (!isUuid(params.id)) notFound();

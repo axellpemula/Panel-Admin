@@ -10,12 +10,9 @@ import { Field, Input } from "@/components/ui/Form";
 import { useToast } from "@/components/ui/Toast";
 import { ApiClientError, apiPost } from "@/lib/api/client";
 
-/** Jeda animasi overlay sebelum pindah halaman (ms). */
 const ENTER_DELAY_MS = 1700;
-/** Batas tunggu router — kalau lewat ini, hard navigate (ms). */
 const ENTER_FALLBACK_MS = 6000;
 
-/** Form login memakai Supabase Auth lewat POST /api/auth/login. */
 export function LoginForm({
   initialError,
   nextPath,
@@ -31,12 +28,10 @@ export function LoginForm({
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(initialError ?? null);
   const [loading, setLoading] = useState(false);
-  /** "entering" = login sukses, overlay tampil sebelum masuk dashboard. */
   const [phase, setPhase] = useState<"idle" | "entering">("idle");
   const enterTimer = useRef<number | null>(null);
   const fallbackTimer = useRef<number | null>(null);
 
-  // Bersihkan timer kalau komponen lepas (mis. navigasi selesai lebih cepat).
   useEffect(() => {
     return () => {
       if (enterTimer.current) window.clearTimeout(enterTimer.current);
@@ -60,18 +55,14 @@ export function LoginForm({
         { email: email.trim(), password },
       );
       toast.success(`Selamat datang, ${result.user.username}`);
-      // Validasi path tujuan: harus relatif internal. "//host" (protocol-relative)
-      // juga lolos cek startsWith("/"), padahal itu redirect ke domain lain.
       const target =
         nextPath.startsWith("/") && !nextPath.startsWith("//") ? nextPath : "/dashboard";
 
-      // Tampilkan overlay loading (mark XLOOP) sebentar sebelum pindah halaman.
       setPhase("entering");
       enterTimer.current = window.setTimeout(() => {
         router.replace(target);
         router.refresh();
       }, ENTER_DELAY_MS);
-      // Jaga-jaga: kalau router tidak kunjung pindah, hard navigate.
       fallbackTimer.current = window.setTimeout(() => {
         window.location.href = target;
       }, ENTER_FALLBACK_MS);

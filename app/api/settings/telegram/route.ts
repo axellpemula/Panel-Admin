@@ -18,26 +18,10 @@ export const runtime = "nodejs";
 
 const BODY_MAX = 4 * 1024;
 
-/**
- * Kelola bot Telegram panel (khusus Owner).
- *
- * GET  — status bot + info webhook (token TIDAK pernah dikirim ke browser).
- * POST — `{ action }`:
- *   - `connect`        : `{ bot_token, public_url? }` verifikasi token (getMe) lalu pasang webhook,
- *   - `set_webhook`    : `{ public_url? }` pasang ulang webhook (secret diganti),
- *   - `remove_webhook` : hapus webhook (pakai long polling manual kalau perlu),
- *   - `disconnect`     : hapus webhook + lupakan token,
- *   - `test`           : kirim pesan uji ke chat Owner yang sudah menautkan akun,
- *   - `notifications`  : `{ enabled }` matikan/nyalakan pengiriman notifikasi ke Telegram.
- *
- * URL webhook diambil dari `public_url` (kalau diisi) atau origin request.
- */
-
 function normalizeBaseUrl(value: string): string {
   return value.trim().replace(/\/+$/, "");
 }
 
-/** Hanya izinkan http(s) — mencegah nilai aneh disimpan ke konfigurasi. */
 function isValidBaseUrl(value: string): boolean {
   try {
     const url = new URL(value);
@@ -101,8 +85,6 @@ export async function POST(request: NextRequest) {
 
           const bot = await getTelegramBot(token);
           if (!bot.ok) {
-            // Bedakan masalah jaringan (server tidak bisa keluar) dari token salah —
-            // pesan yang keliru bikin Owner bingung saat setup.
             const reason = bot.error ?? "tidak valid";
             const networkIssue =
               /fetch failed|timeout|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|network/i.test(reason);

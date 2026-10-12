@@ -14,11 +14,6 @@ interface RouteParams {
   params: { id: string };
 }
 
-/**
- * GET /api/v1/keys/[id]
- * Detail satu key + daftar device + sisa kuota reset HWID.
- * `id` boleh berupa UUID key atau `key_value` (XLVP-XXXX-XXXX) — praktis untuk client.
- */
 export async function GET(request: NextRequest, route: RouteParams) {
   return withApiKey(request, async (ctx) => {
     const raw = decodeURIComponent(route.params.id);
@@ -29,7 +24,6 @@ export async function GET(request: NextRequest, route: RouteParams) {
     }
 
     try {
-      // Cari kolom id dulu (mendukung UUID maupun key_value).
       let keyId = raw;
       if (!rawIsUuid) {
         const { data: row, error } = await ctx.admin

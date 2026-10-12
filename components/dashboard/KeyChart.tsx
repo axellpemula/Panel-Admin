@@ -12,10 +12,6 @@ import {
 
 import type { ChartPoint } from "@/lib/api/stats";
 
-/**
- * Grafik key per hari (7 hari terakhir) — line chart.
- * Komponen ini di-load lewat next/dynamic({ ssr: false }) hanya di halaman dashboard.
- */
 export function KeyChart({ data, title }: { data: ChartPoint[]; title: string }) {
   const total = data.reduce((sum, point) => sum + point.count, 0);
 

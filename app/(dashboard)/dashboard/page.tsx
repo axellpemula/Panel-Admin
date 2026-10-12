@@ -14,11 +14,6 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-/**
- * Dashboard overview.
- * Susunan: kartu statistik → grafik → dua kolom (Top Reseller & Recent Activity).
- * Di mobile semuanya jadi satu kolom.
- */
 export default async function DashboardPage() {
   const session = await requireSession("/dashboard");
 
@@ -103,7 +98,6 @@ export default async function DashboardPage() {
   );
 }
 
-/** Admin client dipisah supaya tidak pernah ikut ter-bundle ke client. */
 async function adminClient() {
   const { createAdminClient } = await import("@/lib/supabase/admin");
   return createAdminClient();

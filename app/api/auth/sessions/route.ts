@@ -8,16 +8,6 @@ import { errorMessage, jsonError, jsonOk } from "@/lib/utils/http";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/**
- * GET    /api/auth/sessions — daftar sesi aktif akun sendiri.
- * DELETE /api/auth/sessions — "keluar dari semua perangkat lain".
- *
- * Di mode SQLite daftarnya lengkap (IP + user-agent + waktu). Di mode Supabase,
- * daftar sesi per-perangkat tidak diekspos GoTrue, jadi yang dikembalikan hanya
- * sesi yang sedang dipakai dengan penanda `limited: true` — tapi tombol
- * "keluar dari perangkat lain" tetap berfungsi (scope `others`).
- */
-
 export async function GET(request: NextRequest) {
   return withAuth(request, async (ctx) => {
     try {

@@ -12,17 +12,6 @@ interface RouteParams {
   params: { id: string; deviceId: string };
 }
 
-/**
- * DELETE /api/keys/[id]/devices/[deviceId]
- * Reset 1 slot device (hapus HWID dari key) → slot-nya bisa dipakai device lain.
- * `deviceId` boleh berupa UUID baris device_logs atau HWID-nya langsung.
- * Tercatat di audit log (HWID yang direset ikut disimpan di detail).
- *
- * **Cooldown** — reseller dibatasi `hwid.resetLimit` reset (termasuk reset semua)
- * dalam `hwid.resetWindowHours` jam per key (bisa diatur Owner di Pengaturan).
- * Owner dibebaskan. Logikanya ada di lib/api/device-reset.ts supaya sama dengan
- * jalur API publik & bot Telegram.
- */
 export async function DELETE(request: NextRequest, route: RouteParams) {
   return withAuth(request, async (ctx) => {
     const { key, allowed, error } = await loadKeyWithAccess(ctx, route.params.id);

@@ -43,11 +43,6 @@ async function loadReseller(
   return { profile: data };
 }
 
-/**
- * GET /api/resellers/[id]?history_limit=
- * Detail reseller + riwayat credit + statistik (total key per status, chart 7 hari).
- * Dipakai modal cepat di daftar reseller dan halaman /resellers/[id].
- */
 export async function GET(request: NextRequest, route: RouteParams) {
   return withOwner(request, async (ctx) => {
     const { id } = route.params;
@@ -85,14 +80,6 @@ export async function GET(request: NextRequest, route: RouteParams) {
   });
 }
 
-/**
- * PUT /api/resellers/[id] — aksi owner terhadap satu reseller:
- * - { action: "topup", amount, note? }
- * - { action: "adjust_credit", amount, reason, note? }  (amount boleh negatif)
- * - { action: "set_active", is_active }
- * - { action: "reset_password", password }
- * - { action: "update", username?, email? }
- */
 export async function PUT(request: NextRequest, route: RouteParams) {
   return withOwner(request, async (ctx) => {
     const { id } = route.params;
@@ -121,7 +108,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
     const action = asString(body.action, 32);
     if (!action) return jsonError("Action wajib diisi", "validation_error", 400);
 
-    // --- TOPUP ---
     if (action === "topup") {
       const amount = asInt(body.amount, 1, 1_000_000);
       if (amount === null) return jsonError("Jumlah credit tidak valid", "validation_error", 400);
@@ -169,14 +155,12 @@ export async function PUT(request: NextRequest, route: RouteParams) {
       return jsonOk({ reseller: { ...(profile as ProfileRow), credit: balance }, balance });
     }
 
-    // --- PENYESUAIAN CREDIT (bisa menambah atau mengurangi, wajib alasan) ---
     if (action === "adjust_credit") {
       const amount = asSignedInt(body.amount, 1_000_000);
       if (amount === null || amount === 0) {
         return jsonError("Jumlah penyesuaian tidak valid (angka, tidak boleh 0)", "validation_error", 400);
       }
 
-      // Alasan wajib: penyesuaian tanpa alasan tidak bisa diaudit.
       const reason = (asOptionalString(body.reason, 200) ?? "").trim();
       if (reason.length < 3) {
         return jsonError("Alasan penyesuaian wajib diisi (minimal 3 karakter)", "validation_error", 400);
@@ -238,7 +222,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
         },
       });
 
-      // Saldo turun melewati ambang tipis → Owner (dan reseller) diberi tahu.
       if (amount < 0) {
         notifyLowCredit(ctx.admin, {
           userId: id,
@@ -258,7 +241,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
       });
     }
 
-    // --- AKTIF / NONAKTIF ---
     if (action === "set_active") {
       const isActive = asBool(body.is_active);
       if (isActive === null) return jsonError("Status aktif tidak valid", "validation_error", 400);
@@ -270,19 +252,16 @@ export async function PUT(request: NextRequest, route: RouteParams) {
 
       if (updateError) return jsonError(updateError.message, "server_error", 500);
 
-      // Akun nonaktif langsung diputus sesinya.
       if (!isActive) {
         try {
           await ctx.admin.auth.admin.signOut(id);
         } catch {
-          // signOut global tidak selalu tersedia; middleware tetap memblokir login.
         }
       }
 
       return jsonOk({ is_active: isActive });
     }
 
-    // --- RESET PASSWORD ---
     if (action === "reset_password") {
       const password = asPassword(body.password);
       if (!password) return jsonError("Password minimal 8 karakter", "validation_error", 400);
@@ -293,7 +272,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
       return jsonOk({ updated: true });
     }
 
-    // --- UPDATE DATA ---
     if (action === "update") {
       const updates: Partial<ProfileRow> = {};
       const authUpdates: Record<string, unknown> = {};
@@ -348,11 +326,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
   });
 }
 
-/**
- * DELETE /api/resellers/[id]
- * Hapus permanen: akun auth, profil, seluruh key + HWID, dan riwayat credit.
- * Wajib mengirim `{ confirm_username: "<username>" }` sebagai pengaman.
- */
 export async function DELETE(request: NextRequest, route: RouteParams) {
   return withOwner(request, async (ctx) => {
     const { id } = route.params;
@@ -377,7 +350,6 @@ export async function DELETE(request: NextRequest, route: RouteParams) {
       );
     }
 
-    // Hapus key milik reseller (device_logs ikut terhapus lewat cascade).
     const { data: keys } = await ctx.admin.from("keys").select("id").eq("created_by", id);
     const keyIds = (keys ?? []).map((row) => row.id as string);
 
@@ -387,10 +359,6 @@ export async function DELETE(request: NextRequest, route: RouteParams) {
       if (keyError) return jsonError(keyError.message, "server_error", 500);
     }
 
-    // Riwayat credit milik reseller ikut dihapus. Baris credit_logs tidak
-    // mereferensi reseller sebagai `created_by` (yang membuat selalu Owner atau
-    // reseller itu sendiri), jadi hapus by user_id sudah cukup — tidak ada FK
-    // yang menggantung.
     const { error: logError } = await ctx.admin.from("credit_logs").delete().eq("user_id", id);
     if (logError) return jsonError(logError.message, "server_error", 500);
 

@@ -19,16 +19,6 @@ interface BanBody {
   note?: unknown;
 }
 
-/**
- * PUT /api/keys/[id]/ban
- * Status jadi `banned` — key tidak bisa dipakai walau belum expired.
- *
- * Body (opsional): { reason: "manual" | "refund" | "other", note?: string }
- * - `reason` terstruktur untuk audit & sengketa; default "manual".
- * - `auto_hwid` khusus auto-ban sistem (/api/validate) dan tidak bisa dipilih manual.
- *
- * Setiap ban dicatat ke `audit_logs` (siapa, kapan, alasan, catatan).
- */
 export async function PUT(request: NextRequest, route: RouteParams) {
   return withAuth(request, async (ctx) => {
     const { key, allowed, error } = await loadKeyWithAccess(ctx, route.params.id);
@@ -38,7 +28,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
     try {
       body = (await request.json()) as BanBody;
     } catch {
-      // Body kosong/tidak valid → tetap boleh ban dengan alasan default.
       body = {};
     }
 
@@ -60,7 +49,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
     }
     const reason: BanReason = (rawReason as ManualBanReason | null) ?? "manual";
 
-    // Catatan opsional — hanya divalidasi kalau memang dikirim.
     let note: string | null = null;
     if (body.note !== undefined) {
       const parsedNote = asOptionalString(body.note, LIMITS.noteMax);
@@ -83,7 +71,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
 
     if (updateError) return jsonError(updateError.message, "server_error", 500);
 
-    // Jejak audit: siapa yang ban + alasan terstrukturnya.
     const keyOwnerUsername = await getProfileUsername(ctx.admin, key.created_by);
     await recordAuditLog(ctx.admin, {
       actorId: ctx.userId,

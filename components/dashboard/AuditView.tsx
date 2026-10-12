@@ -55,7 +55,6 @@ const ACTION_OPTIONS: { value: string; label: string }[] = [
   { value: "hwid_reset_all", label: AUDIT_ACTION_LABEL.hwid_reset_all },
 ];
 
-/** Warna label aksi: aksi yang mengubah/merusak → merah, unban → hijau, sisanya → muted. */
 function actionTone(action: AuditAction): string {
   if (action === "key_unban") return "text-active";
   if (action === "key_ban" || action === "key_auto_ban" || action === "key_delete") {
@@ -64,7 +63,6 @@ function actionTone(action: AuditAction): string {
   return "text-muted";
 }
 
-/** Ringkasan kecil dari detail JSON untuk tooltip. */
 function detailSummary(detail: Record<string, unknown> | null): string {
   if (!detail) return "";
   const parts: string[] = [];
@@ -84,11 +82,6 @@ function detailSummary(detail: Record<string, unknown> | null): string {
   return parts.length > 0 ? parts.join(" · ") : JSON.stringify(detail);
 }
 
-/**
- * Audit Log (Owner only): jejak siapa yang ban, unban, hapus key, reset HWID,
- * atau auto-ban — lengkap dengan alasan ban terstruktur. Ini yang pertama
- * dicari kalau ada sengketa dengan reseller.
- */
 export function AuditView({
   currentUserId,
   currentUsername,
@@ -138,7 +131,6 @@ export function AuditView({
     void load();
   }, [load]);
 
-  // Daftar aktor (reseller) untuk filter — Owner (kamu) selalu ada di opsi.
   useEffect(() => {
     let cancelled = false;
     const loadResellers = async () => {
@@ -146,7 +138,6 @@ export function AuditView({
         const response = await apiGet<{ resellers: TopReseller[] }>("/api/resellers");
         if (!cancelled) setResellers(response.resellers);
       } catch {
-        // Filter aktor tidak wajib.
       }
     };
     void loadResellers();
@@ -155,7 +146,6 @@ export function AuditView({
     };
   }, []);
 
-  // --- Debounce input pencarian key (300 ms) ---
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setFilters((previous) =>
@@ -217,7 +207,7 @@ export function AuditView({
           <h1 className="text-title font-medium">Audit Log</h1>
           <p className="mt-1 text-body text-muted">
             {scope === "key"
-              ? "Jejak semua aksi pada key: siapa yang ban, unban, hapus key, atau reset HWID — lengkap dengan alasan ban. Auto-ban (HWID) hanya bisa di-unban oleh Owner."
+              ? "Jejak semua aksi pada key: siapa yang ban, unban, hapus key, atau reset HWID — lengkap dengan alasan ban. Auto-ban (HWID)."
               : "Aktivitas akun & sistem: ganti password, putus sesi, API key dibuat/dicabut, pengaturan diubah, topup/penyesuaian credit, dan bot Telegram."}
           </p>
         </div>
@@ -257,7 +247,6 @@ export function AuditView({
                 aria-label="Muat ulang audit log"
                 title="Muat ulang audit log"
               >
-                Muat ulang
               </Button>
               <Button
                 size="sm"
@@ -343,7 +332,7 @@ export function AuditView({
               />
               <input
                 className="field pl-9 font-mono"
-                placeholder="XLVP-…"
+                placeholder="Cari Key..."
                 value={keyInput}
                 onChange={(event) => setKeyInput(event.target.value.toUpperCase())}
                 aria-label="Cari key"

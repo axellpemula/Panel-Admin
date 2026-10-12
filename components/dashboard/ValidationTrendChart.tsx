@@ -18,11 +18,6 @@ export interface ValidationTrendPoint {
   failed: number;
 }
 
-/**
- * Tren percobaan validasi (per jam / per hari) — stacked bar: sukses vs gagal.
- * Komponen ini di-load lewat next/dynamic({ ssr: false }) dari halaman
- * Validation Attempts (recharts hanya untuk halaman ini).
- */
 export function ValidationTrendChart({
   data,
   hourly,
@@ -31,7 +26,6 @@ export function ValidationTrendChart({
   hourly: boolean;
 }) {
   const total = data.reduce((sum, point) => sum + point.total, 0);
-  // Banyaknya label maksimal ~12 supaya tidak bertumpuk di layar kecil.
   const tickInterval = Math.max(0, Math.ceil(data.length / 12) - 1);
 
   return (

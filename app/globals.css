@@ -2,12 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/*
- * Token warna XLOOP PANEL (dark only, tidak ada light mode).
- * Komponen TIDAK boleh hardcode hex — selalu pakai token (bg-surface, text-muted, dst).
- * Nilai di bawah adalah DEFAULT; user bisa menggantinya dari menu Pengaturan →
- * root layout menimpa variabel ini lewat inline style di <html> (lihat lib/theme.ts).
- */
 :root {
   --c-bg: 28 27 25; /* #1c1b19 */
   --c-surface: 35 34 32; /* #232220 */
@@ -65,14 +59,12 @@
     color: rgb(var(--c-muted));
   }
 
-  /* Fokus selalu terlihat, memakai warna accent. */
   :focus-visible {
     outline: 2px solid rgb(var(--c-accent));
     outline-offset: 1px;
     border-radius: var(--r-control, 6px);
   }
 
-  /* Scrollbar tipis, tidak dekoratif. */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
@@ -94,30 +86,25 @@
 }
 
 @layer components {
-  /* Kartu dasar: border 1px, tanpa shadow. */
   .card {
     @apply rounded-card border border-border bg-surface;
   }
 
-  /* Input teks / textarea / kontrol form. */
   .field {
     @apply w-full rounded-control border border-border bg-bg px-3 py-2 text-body text-text
       transition-colors duration-150 ease-out hover:border-muted/60
       disabled:cursor-not-allowed disabled:opacity-50;
   }
 
-  /* Baris tabel. */
   .row-hover {
     @apply transition-colors duration-150 ease-out hover:bg-surface-raised;
   }
 
-  /* Fokus ring untuk item non-input (baris tabel, kartu yang bisa diklik). */
   .ring-focus {
     @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70;
   }
 }
 
-/* Hormati prefers-reduced-motion — semua animasi dimatikan. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -129,11 +116,6 @@
   }
 }
 
-/* ------------------------------------------------------------------ */
-/* Kepadatan tabel "Kompak" — diatur dari menu Pengaturan               */
-/* (class `density-compact` di <html>, cookie xloop_density).           */
-/* Baris tabel 44px → 36px, padding sel dikurangi, font sedikit rapat.  */
-/* ------------------------------------------------------------------ */
 .density-compact table tbody tr {
   height: 2.25rem;
 }

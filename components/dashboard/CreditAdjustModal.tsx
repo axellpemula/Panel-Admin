@@ -17,15 +17,6 @@ export interface AdjustTarget {
   credit: number;
 }
 
-/**
- * Modal penyesuaian credit (fitur #4): Owner bisa menambah ATAU mengurangi saldo
- * reseller dengan alasan wajib — berbeda dari topup yang hanya menambah.
- *
- * Alasan ikut tercatat di Credit Log (action `adjustment`) dan di Audit Log,
- * supaya setiap koreksi saldo bisa ditelusuri. Pengurangan tidak boleh membuat
- * saldo negatif (dicek di client untuk pengalaman cepat, dan di server sebagai
- * penentu akhir).
- */
 export function CreditAdjustModal({
   target,
   onClose,
@@ -162,7 +153,7 @@ export function CreditAdjustModal({
           label="Alasan"
           required
           error={reasonTooShort && reason.length > 0 ? "Minimal 3 karakter" : undefined}
-          hint="Wajib — tercatat di Credit Log & Audit Log (mis. kompensasi key error)."
+          hint="Wajib — tercatat di Credit Log & Audit Log."
         >
           <Input
             value={reason}

@@ -9,20 +9,14 @@ import { errorMessage, jsonError, jsonOk } from "@/lib/utils/http";
 
 export const dynamic = "force-dynamic";
 
-/** Zona waktu panel (WIB/Asia/Jakarta, UTC+7 tanpa DST) — dipakai bucket tren. */
 const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
 
-/** Rentang ≤ 48 jam → tren per jam; selebihnya → tren per hari. */
 const HOURLY_TREND_MAX_MS = 48 * HOUR_MS;
-/** Batas aman jumlah bucket tren (rentang dijapit, ini tidak akan tercapai). */
 const MAX_TREND_BUCKETS = 400;
-/** Batas pengambilan baris untuk agregasi (IP mencurigakan, key gagal, tren). */
 const AGGREGATE_FETCH_LIMIT = 50_000;
-/** Batas baris export CSV. */
 const CSV_EXPORT_LIMIT = 5_000;
-/** Jumlah baris maksimal pada tabel analitik (IP/HWID/key). */
 const TOP_LIMIT = 10;
 
 const MONTHS_ID = [
@@ -49,40 +43,19 @@ interface AttemptFilterValues {
   key: string;
 }
 
-/**
- * GET /api/validation-attempts
- * Log percobaan validasi key yang dikumpulkan /api/validate — hanya untuk Owner.
- *
- * Mengembalikan satu paket: ringkasan (total/sukses/gagal/IP & key unik), tren per jam
- * (atau per hari kalau rentang > 48 jam), daftar IP mencurigakan, key yang paling
- * sering gagal, plus daftar percobaan terbaru (filter + pagination).
- *
- * Analitik anti-abuse (bisa diatur di Pengaturan → Analitik anti-abuse):
- * - `shared_hwids` — satu HWID dipakai banyak key berbeda (indikasi HWID dijual ulang),
- * - `multi_ip_keys` — satu key dipakai dari banyak IP (indikasi key dibagi-bagikan),
- * - `suspicious_ips` — IP dengan kegagalan menumpuk / percobaan key tidak dikenal.
- *
- * Query params: from, to (YYYY-MM-DD, WIB), result (success|failed), reason,
- * ip, key, page, per_page, format=csv
- */
 export async function GET(request: NextRequest) {
   return withOwner(request, async (ctx) => {
     const params = request.nextUrl.searchParams;
     const format = params.get("format");
-    // Page di-clamp juga ke atas: nilai ekstrem (mis. 1e20) membuat offset
-    // melewati batas integer SQLite → error 500 yang tidak perlu.
     const page = Math.min(1_000_000, Math.max(1, Number.parseInt(params.get("page") ?? "1", 10) || 1));
     const perPageRaw = Number.parseInt(params.get("per_page") ?? "25", 10) || 25;
     const perPage = Math.min(200, Math.max(5, perPageRaw));
 
     try {
-      // Ambang analitik & masa retensi dibaca dari konfigurasi runtime (Pengaturan).
       const runtime = await loadRuntime(ctx.admin);
 
-      // --- Rentang tanggal (WIB) -------------------------------------------
       const now = new Date();
       const nowMs = now.getTime();
-      // Data lebih tua dari retention tidak ada (dibersihkan cron) — jepit ke batas itu.
       const retentionStartMs = nowMs - runtime.retention.attemptsDays * DAY_MS;
 
       let fromMs: number;
@@ -115,7 +88,6 @@ export async function GET(request: NextRequest) {
         return jsonError("Rentang tanggal tidak valid", "validation_error", 400);
       }
 
-      // --- Filter ------------------------------------------------------------
       const resultParam = params.get("result");
       const result: AttemptFilterValues["result"] =
         resultParam === "success" || resultParam === "failed" ? resultParam : "";
@@ -123,8 +95,6 @@ export async function GET(request: NextRequest) {
       const reason = (VALIDATION_REASONS as readonly string[]).includes(reasonParam)
         ? reasonParam
         : "";
-      // Wildcard LIKE (%, _) dibuang supaya filter selalu literal — sama seperti
-      // pencarian key di Key List.
       const ip = sanitizeLikeFilter(params.get("ip"));
       const key = sanitizeLikeFilter(params.get("key"));
 
@@ -137,7 +107,6 @@ export async function GET(request: NextRequest) {
         key,
       };
 
-      // --- Export CSV ---------------------------------------------------------
       if (format === "csv") {
         const { data, error } = await buildAttemptQuery(ctx.admin, filterValues).range(
           0,
@@ -168,7 +137,6 @@ export async function GET(request: NextRequest) {
         });
       }
 
-      // --- Agregasi (pakai baris terfilter, dibatasi) -------------------------
       const { data: aggregateRows, error: aggregateError } = await buildAttemptQuery(
         ctx.admin,
         filterValues,
@@ -230,10 +198,6 @@ export async function GET(request: NextRequest) {
   });
 }
 
-/**
- * Query dasar validation_attempts + semua filter — dipakai bersama oleh daftar
- * (pagination + count exact), agregasi, dan export CSV.
- */
 function buildAttemptQuery(admin: AuthContext["admin"], filters: AttemptFilterValues) {
   let query = admin
     .from("validation_attempts")
@@ -251,20 +215,16 @@ function buildAttemptQuery(admin: AuthContext["admin"], filters: AttemptFilterVa
   return query;
 }
 
-/** Bersihkan wildcard LIKE (%, _) dari input filter supaya hasilnya literal. */
 function sanitizeLikeFilter(value: string | null): string {
   return (value ?? "").replace(/[%_]/g, "").trim().slice(0, 64);
 }
 
-/** "YYYY-MM-DD" → 00:00:00 WIB hari itu. */
 function parseJakartaDayStart(value: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
   if (!match) return null;
   const year = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
-  // Tolak tanggal tidak nyata (mis. 2026-02-30) — Date.UTC akan menggulungnya
-  // ke bulan berikutnya tanpa error.
   const check = new Date(Date.UTC(year, month - 1, day));
   if (
     check.getUTCFullYear() !== year ||
@@ -273,12 +233,10 @@ function parseJakartaDayStart(value: string): Date | null {
   ) {
     return null;
   }
-  // Jakarta = UTC+7 → 00:00 WIB = 17:00 UTC hari sebelumnya.
   const date = new Date(Date.UTC(year, month - 1, day, -7, 0, 0, 0));
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** Tanggal (YYYY-MM-DD) dari sebuah momen dalam zona waktu Asia/Jakarta. */
 function toJakartaDateKey(date: Date): string {
   return new Date(date.getTime() + JAKARTA_OFFSET_MS).toISOString().slice(0, 10);
 }
@@ -292,7 +250,6 @@ type AttemptRow = {
   created_at: string;
 };
 
-/** Ringkasan total percobaan pada rentang aktif. */
 function summarize(rows: AttemptRow[]) {
   let succeeded = 0;
   const ips = new Set<string>();
@@ -317,10 +274,6 @@ function summarize(rows: AttemptRow[]) {
   };
 }
 
-/**
- * Tren per jam (rentang ≤ 48 jam) atau per hari — bucket WIB, lengkap dengan
- * bucket kosong supaya grafik tidak "putus".
- */
 function buildTrend(rows: AttemptRow[], fromMs: number, toMs: number, hourly: boolean) {
   const unitMs = hourly ? HOUR_MS : DAY_MS;
 
@@ -362,7 +315,6 @@ function buildTrend(rows: AttemptRow[], fromMs: number, toMs: number, hourly: bo
   return trend;
 }
 
-/** Label bucket tren: "08 Okt 14:00" (per jam) atau "08 Okt" (per hari). */
 function jakartaBucketLabel(bucketMs: number, hourly: boolean): string {
   const date = new Date(bucketMs + JAKARTA_OFFSET_MS);
   const day = String(date.getUTCDate()).padStart(2, "0");
@@ -372,10 +324,6 @@ function jakartaBucketLabel(bucketMs: number, hourly: boolean): string {
   return `${day} ${month} ${hour}:00`;
 }
 
-/**
- * IP mencurigakan: diurutkan dari yang paling banyak gagal. `suspect` = indikasi
- * bruteforce (invalid_key ≥ ambang rate limit) atau akumulasi gagal tinggi.
- */
 function topSuspiciousIps(rows: AttemptRow[], suspectMin: number, bruteForceMin: number) {
   const map = new Map<
     string,
@@ -426,7 +374,6 @@ function topSuspiciousIps(rows: AttemptRow[], suspectMin: number, bruteForceMin:
     .slice(0, TOP_LIMIT);
 }
 
-/** Key yang paling sering gagal — lengkap dengan breakdown alasan & jumlah IP. */
 function topFailingKeys(rows: AttemptRow[]) {
   const map = new Map<
     string,
@@ -481,11 +428,6 @@ function topFailingKeys(rows: AttemptRow[]) {
     .slice(0, TOP_LIMIT);
 }
 
-/**
- * Deteksi **HWID dipakai banyak key** (indikasi HWID dijual ulang / key dishare
- * ke banyak orang). Satu baris per hardware_id dengan ≥ 2 key berbeda; yang
- * melewati ambang `sharedHwidKeysMin` ditandai `suspect`.
- */
 function sharedHardwareIds(rows: AttemptRow[], minKeys: number) {
   const map = new Map<
     string,
@@ -546,10 +488,6 @@ function sharedHardwareIds(rows: AttemptRow[], minKeys: number) {
     .slice(0, TOP_LIMIT);
 }
 
-/**
- * Deteksi **satu key dipakai dari banyak IP** (indikasi key dibagi-bagikan atau
- * dijual ulang ke banyak pengguna). Ambang: `multiIpKeysMin` IP berbeda.
- */
 function multiIpKeyUsage(rows: AttemptRow[], minIps: number) {
   const map = new Map<
     string,
@@ -608,7 +546,6 @@ function multiIpKeyUsage(rows: AttemptRow[], minIps: number) {
     .slice(0, TOP_LIMIT);
 }
 
-/** Normalisasi satu baris validation_attempts (boolean sudah dikonversi adapter SQLite). */
 function normalizeAttempt(row: unknown) {
   const record = row as Record<string, unknown>;
   return {

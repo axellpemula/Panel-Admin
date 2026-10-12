@@ -48,10 +48,6 @@ interface DeleteResponse {
   } | null;
 }
 
-/**
- * Halaman Key List: filter + search + sort + pagination + aksi per key.
- * Dipakai Owner (semua key) dan Reseller (key miliknya saja — filter role di server).
- */
 export function KeysView({
   isOwner,
   currentUserId,
@@ -61,11 +57,8 @@ export function KeysView({
 }: {
   isOwner: boolean;
   currentUserId: string;
-  /** Prefill pencarian dari URL `?q=` (dipakai command palette). */
   initialQuery?: string;
-  /** Prefill filter pembuat dari URL `?created_by=` (dipakai detail reseller). */
   initialCreatedBy?: string;
-  /** Prefill filter status dari URL `?status=`. */
   initialStatus?: string;
 }) {
   const toast = useToast();
@@ -101,24 +94,15 @@ export function KeysView({
   const [banTarget, setBanTarget] = useState<KeyListItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<KeyListItem | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
-
-  // Alasan ban terstruktur + catatan (dicatat ke audit log).
   const [banReason, setBanReason] = useState<BanReason>("manual");
   const [banNote, setBanNote] = useState("");
 
   const firstLoad = useRef(true);
 
-  // Pengembalian credit: hanya saat Owner menghapus key reseller yang masih aktif & belum expired.
   const deleteTargetRefundable = deleteTarget
     ? isKeyRefundableOnDelete(deleteTarget, { userId: currentUserId, isOwner })
     : false;
 
-  /**
-   * Keterangan tambahan di dialog hapus, supaya aturan pengembalian jelas:
-   * - Owner + key reseller + aktif & belum expired → credit dikembalikan (hijau);
-   * - Owner + key reseller + expired/banned → dijelaskan kenapa tidak dikembalikan;
-   * - reseller menghapus key sendiri → tidak ada pengembalian.
-   */
   const deleteNote = (() => {
     if (!deleteTarget) return null;
     const target = deleteTarget;
@@ -161,7 +145,6 @@ export function KeysView({
     return null;
   })();
 
-  // --- Debounce input pencarian (300 ms) ---
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setFilters((previous) =>
@@ -172,7 +155,6 @@ export function KeysView({
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
-  // --- Muat data key ---
   const loadKeys = useCallback(async () => {
     if (firstLoad.current) setLoading(true);
     else setReloading(true);
@@ -204,7 +186,6 @@ export function KeysView({
     void loadKeys();
   }, [loadKeys]);
 
-  // --- Muat opsi filter ---
   useEffect(() => {
     let cancelled = false;
     const loadOptions = async () => {
@@ -265,15 +246,10 @@ export function KeysView({
     setPage(1);
   };
 
-  /**
-   * Buka dialog ban/unban. Unban untuk key auto-ban (ban_reason = 'auto_hwid')
-   * hanya bisa oleh Owner — dicegah sedini mungkin di UI; API tetap menolak
-   * sebagai pengaman.
-   */
   const openBanDialog = (item: KeyListItem) => {
     if (item.status === "banned" && item.ban_reason === "auto_hwid" && !isOwner) {
       toast.error(
-        "Key ini kena auto-ban (terlalu banyak HWID berbeda). Unban auto-ban hanya bisa oleh Owner.",
+        "Key ini kena auto-ban terlalu banyak HWID berbeda. Unban auto-ban hanya bisa oleh Owner.",
       );
       return;
     }
@@ -431,10 +407,8 @@ export function KeysView({
             <Select
               ariaLabel="Filter reseller"
               value={filters.createdBy || null}
-              placeholder="Semua reseller"
+              placeholder="Semua pembuat"
               onChange={(value) => {
-                // "Milik saya (Owner)" = filter created_by ke diri sendiri,
-                // bukan mengosongkan filter (yang berarti "semua pembuat").
                 setFilters((previous) => ({
                   ...previous,
                   createdBy: value,

@@ -43,7 +43,6 @@ export interface KeyTableProps {
   emptyMessage?: string;
 }
 
-/** Key aktif yang expired dalam ≤ 3 jam dapat penanda "segera expired". */
 const EXPIRING_SOON_MS = 3 * 60 * 60 * 1000;
 
 function isExpiringSoon(item: KeyListItem): boolean {
@@ -52,13 +51,6 @@ function isExpiringSoon(item: KeyListItem): boolean {
   return diff > 0 && diff <= EXPIRING_SOON_MS;
 }
 
-/**
- * Tabel key reusable: sort, hover row, header sticky, scroll horizontal
- * di dalam container (halaman tidak ikut geser).
- *
- * Di layar kecil (< sm) tabel diganti daftar kartu supaya key, status, dan
- * aksi tetap terbaca tanpa scroll horizontal 1000px.
- */
 export function KeyTable(props: KeyTableProps) {
   const { items, loading = false, emptyMessage = "Belum ada key" } = props;
 
@@ -85,10 +77,6 @@ export function KeyTable(props: KeyTableProps) {
     </>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/* Tabel (≥ sm)                                                        */
-/* ------------------------------------------------------------------ */
 
 function DesktopTable({
   items,
@@ -206,10 +194,6 @@ function DesktopTable({
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Kartu (< sm)                                                        */
-/* ------------------------------------------------------------------ */
-
 function MobileCards({
   items,
   isOwner,
@@ -283,10 +267,6 @@ function MobileCards({
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Sel yang dipakai bersama                                            */
-/* ------------------------------------------------------------------ */
-
 function ToolVersion({ toolName, versionName }: { toolName: string; versionName: string }) {
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5 text-muted">
@@ -324,7 +304,6 @@ function StatusCell({ item }: { item: KeyListItem }) {
   );
 }
 
-/** Tanggal expired + tooltip relatif ("3 hari lagi" / "2 jam lalu"). */
 function ExpiredCell({ item }: { item: KeyListItem }) {
   if (!item.expired_at) return <span>{LIFETIME_LABEL}</span>;
   return (
@@ -334,7 +313,6 @@ function ExpiredCell({ item }: { item: KeyListItem }) {
   );
 }
 
-/** Terakhir dipakai (validasi HWID). Tooltip = tanggal lengkap. */
 function LastUsed({ value }: { value: string | null }) {
   if (!value) return <span className="text-muted/70">Belum pernah</span>;
   return (

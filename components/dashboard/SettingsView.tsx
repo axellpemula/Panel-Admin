@@ -76,13 +76,6 @@ export interface AppInfo {
   };
 }
 
-/**
- * Halaman Pengaturan: info akun, info web, dan tema warna.
- *
- * Tema diterapkan LANGSUNG ke dokumen saat dipilih (pratinjau instan) dan
- * sekaligus disimpan ke cookie — jadi tidak ada tombol "Simpan" terpisah;
- * reload maupun pindah halaman tetap memakai warna yang sama.
- */
 export function SettingsView({
   account,
   appInfo,
@@ -94,7 +87,6 @@ export function SettingsView({
   appInfo: AppInfo;
   initialTheme: ThemePreference;
   initialDensity: Density;
-  /** Daftar reseller untuk pilihan "buat API key untuk akun lain" (Owner). */
   resellers: { id: string; username: string }[];
 }) {
   return (
@@ -133,10 +125,6 @@ export function SettingsView({
     </div>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/* Info akun                                                           */
-/* ------------------------------------------------------------------ */
 
 function AccountCard({ account }: { account: AccountInfo }) {
   const isReseller = account.role === "reseller";
@@ -202,10 +190,6 @@ function AccountCard({ account }: { account: AccountInfo }) {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Info web                                                            */
-/* ------------------------------------------------------------------ */
-
 function WebInfoCard({ appInfo, isOwner }: { appInfo: AppInfo; isOwner: boolean }) {
   const { limits } = appInfo;
   const ttlMinutes = Math.round(appInfo.tokenTtlSeconds / 60);
@@ -229,7 +213,7 @@ function WebInfoCard({ appInfo, isOwner }: { appInfo: AppInfo; isOwner: boolean 
           value={
             <span className="flex flex-wrap items-center gap-2">
               <Badge tone={appInfo.dbMode === "supabase" ? "active" : "accent"}>
-                {appInfo.dbMode === "supabase" ? "Supabase" : "SQLite lokal"}
+                {appInfo.dbMode === "supabase" ? "Server" : "SQLite"}
               </Badge>
               {isOwner && appInfo.sqlitePath ? (
                 <span className="truncate font-mono text-label text-muted" title={appInfo.sqlitePath}>
@@ -242,11 +226,11 @@ function WebInfoCard({ appInfo, isOwner }: { appInfo: AppInfo; isOwner: boolean 
         {isOwner ? (
           <>
             <InfoRow
-              label="Signing key lisensi"
+              label="Signing"
               value={
                 <ActiveBadge
                   active={appInfo.signingKeyReady}
-                  labelOn="Terpasang (Ed25519)"
+                  labelOn="Terpasang"
                   labelOff="Belum diisi"
                 />
               }
@@ -284,10 +268,6 @@ function WebInfoCard({ appInfo, isOwner }: { appInfo: AppInfo; isOwner: boolean 
     </section>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/* Kepadatan tabel                                                     */
-/* ------------------------------------------------------------------ */
 
 function DensityCard({ initialDensity }: { initialDensity: Density }) {
   const toast = useToast();
@@ -338,7 +318,6 @@ function DensityCard({ initialDensity }: { initialDensity: Density }) {
   );
 }
 
-/** Miniatur baris tabel: rapat vs longgar. */
 function DensityPreview({ compact }: { compact: boolean }) {
   const rows = compact ? 5 : 3;
   return (
@@ -354,10 +333,6 @@ function DensityPreview({ compact }: { compact: boolean }) {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Tema                                                                */
-/* ------------------------------------------------------------------ */
-
 function ThemeCard({ initialTheme }: { initialTheme: ThemePreference }) {
   const toast = useToast();
   const [theme, setTheme] = useState<ThemePreference>(initialTheme);
@@ -366,13 +341,11 @@ function ThemeCard({ initialTheme }: { initialTheme: ThemePreference }) {
   const [surfaceDrafts, setSurfaceDrafts] = useState(() => resolvedThemeColors(initialTheme));
   const [surfaceErrors, setSurfaceErrors] = useState<Partial<Record<ThemeColorKey, string>>>({});
 
-  // Sinkronkan kolom hex saat aksen berubah lewat preset / color picker.
   useEffect(() => {
     setCustomHex(theme.accent);
     setHexError(null);
   }, [theme.accent]);
 
-  /** Terapkan + simpan. Satu jalur untuk semua perubahan supaya selalu konsisten. */
   const commit = (next: ThemePreference, message?: string) => {
     setTheme(next);
     applyThemeToDocument(next);
@@ -393,7 +366,6 @@ function ThemeCard({ initialTheme }: { initialTheme: ThemePreference }) {
     const currentColors = resolvedThemeColors(theme);
     const nextColors = resolveSurfaceColors(id, theme.surfaceColors);
 
-    // Ganti nilai yang tidak diedit; pertahankan draft yang belum diterapkan.
     setSurfaceDrafts((previous) => {
       const next = { ...previous };
       THEME_COLOR_OPTIONS.forEach((option) => {
@@ -853,7 +825,6 @@ function ThemeColorField({
   );
 }
 
-/** Miniatur palet: latar + kartu + garis aksen. */
 function PalettePreview({
   palette,
   accent,
@@ -876,10 +847,6 @@ function PalettePreview({
     </span>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/* Bagian kecil yang dipakai bersama                                   */
-/* ------------------------------------------------------------------ */
 
 function CardHeader({ icon, title, action }: { icon: ReactNode; title: string; action?: ReactNode }) {
   return (

@@ -12,18 +12,11 @@ interface RouteParams {
   params: { id: string };
 }
 
-/**
- * GET /api/keys/[id]/devices
- * Daftar HWID yang terdaftar di key ini, urut dari yang paling awal dipakai.
- * Juga mengembalikan informasi cooldown reset HWID (kuota tersisa) supaya UI
- * bisa menampilkan peringatan & men-disable tombol sebelum user menekannya.
- */
 export async function GET(request: NextRequest, route: RouteParams) {
   return withAuth(request, async (ctx) => {
     const { key, allowed, error } = await loadKeyWithAccess(ctx, route.params.id);
     if (!allowed) return error as Response;
 
-    // Batas cooldown mengikuti konfigurasi Owner di Pengaturan.
     const runtime = await loadRuntime(ctx.admin);
     const limits: HwidResetLimits = {
       limit: runtime.hwid.resetLimit,
@@ -37,7 +30,6 @@ export async function GET(request: NextRequest, route: RouteParams) {
       return jsonError((error as Error).message, "server_error", 500);
     }
 
-    // Kuota cooldown — untuk Owner selalu dilaporkan unlimited (remaining = limit).
     const cooldown = ctx.isOwner
       ? { used: 0, limit: 0, remaining: -1, window_start: null, next_reset_at: null, retry_after_seconds: null }
       : await getHwidResetQuota(ctx.admin, key.id, new Date(), limits);
@@ -51,20 +43,11 @@ export async function GET(request: NextRequest, route: RouteParams) {
   });
 }
 
-/**
- * DELETE /api/keys/[id]/devices
- * Reset SEMUA slot device pada key ini. Tercatat di audit log.
- *
- * **Cooldown** — untuk reseller, "Reset Semua" dihitung 1 kuota yang sama
- * dengan reset 1 HWID (bukan per HWID), karena aksi ini 1 kali operasi dan
- * harus dihitung tegas supaya tidak jadi celah bypass.
- */
 export async function DELETE(request: NextRequest, route: RouteParams) {
   return withAuth(request, async (ctx) => {
     const { key, allowed, error } = await loadKeyWithAccess(ctx, route.params.id);
     if (!allowed) return error as Response;
 
-    // --- Reset semua device (kuota & audit ditangani helper bersama). ---
     const runtime = await loadRuntime(ctx.admin);
     const limits: HwidResetLimits = {
       limit: runtime.hwid.resetLimit,

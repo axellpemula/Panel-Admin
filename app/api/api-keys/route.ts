@@ -10,17 +10,6 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const BODY_MAX = 4 * 1024;
-
-/**
- * API key reseller (untuk `/api/v1`).
- *
- * GET  — daftar API key. Reseller hanya melihat miliknya; Owner bisa memfilter
- *        dengan `?user_id=<uuid>` dan melihat key milik reseller mana pun.
- * POST — buat API key baru (`{ name, user_id? }`). Token penuh HANYA muncul di
- *        response pembuatan ini — setelah itu tidak bisa dilihat lagi.
- *
- * Batas: maksimal 5 key aktif per akun (mencegah kebocoran key menumpuk).
- */
 const MAX_ACTIVE_KEYS = 5;
 
 export async function GET(request: NextRequest) {
@@ -61,10 +50,9 @@ export async function POST(request: NextRequest) {
     const body = (parsed.value ?? {}) as Record<string, unknown>;
     const name = typeof body.name === "string" ? body.name.trim().slice(0, 60) : "";
     if (name.length < 3) {
-      return jsonError("Nama API key wajib diisi (minimal 3 karakter)", "validation_error", 400);
+      return jsonError("Nama API key wajib diisi minimal 3 karakter", "validation_error", 400);
     }
 
-    // Owner boleh membuatkan API key untuk reseller tertentu.
     let targetUserId = ctx.userId;
     const requestedUser = typeof body.user_id === "string" ? body.user_id : "";
     if (requestedUser && requestedUser !== ctx.userId) {
@@ -120,7 +108,6 @@ export async function POST(request: NextRequest) {
 
       return jsonOk({
         api_key: created.apiKey,
-        // Sekali saja — simpan di tempat aman.
         token: created.token,
       });
     } catch (error) {

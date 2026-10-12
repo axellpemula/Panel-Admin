@@ -24,7 +24,6 @@ interface FormState {
 
 const EMPTY: FormState = { id: null, name: "", days: "30", creditCost: "10", isActive: true };
 
-/** Duration Setting (Owner): preset durasi yang bisa dipakai Reseller. */
 export function DurationsView() {
   const toast = useToast();
 

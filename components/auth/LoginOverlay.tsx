@@ -4,29 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 
 import { XloopMark } from "@/components/ui/XloopMark";
 
-/**
- * Overlay loading interaktif setelah login sukses — tampil sebelum masuk dashboard.
- *
- * Dibanding versi sebelumnya (cincin + tilt + shimmer sederhana), splash ini jauh
- * lebih hidup supaya user merasa aplikasi sedang "bekerja" bukan cuma nunggu diam:
- *
- *   • Background grid radial yang bergerak pelan (kesan terbang maju).
- *   • Scan-line vertikal menyapu di area logo.
- *   • Mark X dengan 3D float + breathe.
- *   • Tiga lapis cincin orbit:
- *       - cincin luar (conic aksen) berputar cepat,
- *       - cincin tengah (dashed) counter-rotate lambat,
- *       - cincin dalam (statis) dengan ripple pulse yang membesar.
- *   • Dua dot (accent + aktif) yang mengorbit mengikuti cincin luar.
- *   • 6 partikel cahaya melayang ke atas dengan delay acak.
- *   • Wordmark XLOOP PANEL per-huruf fade-up bergantian.
- *   • Progress bar yang benar-benar terisi (0 → 96%) dengan persentase.
- *   • Status text yang berganti-ganti (sekuens inisialisasi) sesuai progress.
- *
- * Total durasi splash mengikuti konstanta ENTER_DELAY_MS di LoginForm.
- * Semua animasi menghormati `prefers-reduced-motion` via globals.css.
- */
-
 const STATUS_STEPS: { at: number; text: string }[] = [
   { at: 0, text: "Memverifikasi sesi" },
   { at: 18, text: "Menyiapkan workspace" },
@@ -35,7 +12,6 @@ const STATUS_STEPS: { at: number; text: string }[] = [
   { at: 82, text: "Membuka dashboard" },
 ];
 
-/** Hitung status yang aktif berdasarkan progress (0–100). */
 function pickStatus(progress: number): string {
   let active = STATUS_STEPS[0].text;
   for (const step of STATUS_STEPS) {
@@ -45,12 +21,9 @@ function pickStatus(progress: number): string {
 }
 
 export function LoginOverlay({ label }: { label?: string }) {
-  // Progress 0 → 96 selama splash ditampilkan (tidak pernah 100 supaya tidak
-  // terlihat "selesai" sebelum halaman dashboard beneran dimount).
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    // Durasi total splash (ms) — sinkron dengan ENTER_DELAY_MS di LoginForm.
     const DURATION = 1700;
     const START = performance.now();
     let frame = 0;
@@ -58,7 +31,6 @@ export function LoginOverlay({ label }: { label?: string }) {
     const tick = (now: number) => {
       const elapsed = now - START;
       const t = Math.min(1, elapsed / DURATION);
-      // Ease-out cubic supaya progress terasa natural (cepat di awal, melambat).
       const eased = 1 - Math.pow(1 - t, 3);
       setProgress(Math.round(eased * 96));
       if (t < 1) frame = requestAnimationFrame(tick);
@@ -69,8 +41,6 @@ export function LoginOverlay({ label }: { label?: string }) {
 
   const statusText = useMemo(() => pickStatus(progress), [progress]);
 
-  // Partikel cahaya: 6 butir dengan posisi sudut & jarak acak yang ditentukan
-  // saat mount (tidak berubah tiap render).
   const particles = useMemo(
     () =>
       Array.from({ length: 6 }).map((_, i) => ({
@@ -84,7 +54,6 @@ export function LoginOverlay({ label }: { label?: string }) {
     [],
   );
 
-  // Wordmark dipecah per huruf untuk animasi fade-up bergantian.
   const letters = "XLOOP PANEL".split("");
 
   return (

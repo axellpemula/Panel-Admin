@@ -1,14 +1,5 @@
 import { Skeleton, SkeletonCards, SkeletonChart, SkeletonPanel } from "@/components/ui/Skeleton";
 
-/**
- * Loading state halaman dashboard.
- *
- * Struktur meniru susunan halaman dashboard yang sebenarnya (header → 4 stat
- * card → 4 stat card → chart → 2 panel samping) supaya perpindahan ke konten
- * nyata terasa mulus tanpa layout shift besar. Setiap elemen masuk dengan
- * fade-up bergantian, skeleton punya shimmer menyapu, dan batang chart
- * bergelombang — bukan cuma blok abu diam.
- */
 export default function DashboardLoading() {
   return (
     <div className="space-y-6">

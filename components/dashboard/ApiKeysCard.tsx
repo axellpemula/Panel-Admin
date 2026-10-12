@@ -15,14 +15,6 @@ import { useToast } from "@/components/ui/Toast";
 import { ApiClientError, apiDelete, apiGet, apiPost } from "@/lib/api/client";
 import { formatDateTime, formatNumber, formatRelativeToNow } from "@/lib/utils/format";
 
-/**
- * Kartu "API Key" (Pengaturan) — kunci akses mesin ke `/api/v1`.
- *
- * Token penuh HANYA ditampilkan sekali saat dibuat (server hanya menyimpan
- * hash-nya). Owner bisa membuatkan key untuk reseller tertentu; reseller hanya
- * mengelola key miliknya sendiri.
- */
-
 interface ApiKeyItem {
   id: string;
   user_id: string;
@@ -128,7 +120,7 @@ export function ApiKeysCard({
           <div>
             <h2 className="text-body font-medium">API Key</h2>
             <p className="text-label text-muted">
-              Akses mesin ke /api/v1 — maks {maxActive} key aktif ({formatNumber(activeCount)} dipakai)
+              Maks {maxActive} key aktif ({formatNumber(activeCount)} dipakai)
             </p>
           </div>
         </div>
@@ -231,7 +223,7 @@ curl -X POST https://panel-kamu.com/api/v1/keys \\
   -d '{"tool_type_id":"…","tool_version_id":"…","duration_preset_id":"…","quantity":1}'`}
           </pre>
           <p>
-            Dokumentasi lengkap (termasuk batas rate limit & contoh reset HWID):{" "}
+            Dokumentasi lengkap (termasuk batas rate limit & reset HWID):{" "}
             <span className="font-mono">docs/RESELLER_API.md</span> di repositori panel.
           </p>
         </div>
@@ -242,7 +234,7 @@ curl -X POST https://panel-kamu.com/api/v1/keys \\
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         title="Buat API Key"
-        description="Token hanya ditampilkan sekali — simpan di tempat aman (password manager)."
+        description="Token hanya ditampilkan sekali — simpan di tempat aman."
         size="sm"
         busy={busy}
         footer={
@@ -312,7 +304,7 @@ curl -X POST https://panel-kamu.com/api/v1/keys \\
               <CopyButton value={createdToken.token} label="Copy API token" size={16} />
             </div>
             <p className="text-label text-banned">
-              Simpan di tempat aman. Kalau token bocor, cabut key-nya lalu buat yang baru.
+              Simpan di tempat aman. Kalau token bocor, hapus key-nya lalu buat yang baru.
             </p>
           </div>
         ) : null}

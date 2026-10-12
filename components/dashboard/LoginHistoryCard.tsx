@@ -12,17 +12,12 @@ import { LOGIN_REASON_LABEL, type LoginLogItem } from "@/lib/api/login-log";
 import { formatDateTime, formatRelativeToNow } from "@/lib/utils/format";
 import { parseUserAgent, type DeviceInfo } from "@/lib/utils/user-agent";
 
-/**
- * Kartu "Riwayat Login": waktu, IP, perangkat, dan hasil (sukses/gagal).
- * Dipakai di Pengaturan (akun sendiri) dan detail reseller (Owner, lewat `userId`).
- */
 export function LoginHistoryCard({
   userId,
   limit = 20,
   title = "Riwayat Login",
   description,
 }: {
-  /** Kosong = akun yang sedang login. */
   userId?: string;
   limit?: number;
   title?: string;
@@ -73,7 +68,6 @@ export function LoginHistoryCard({
           icon={<RefreshCw size={14} strokeWidth={1.5} className={loading ? "animate-spin" : undefined} />}
           aria-label="Muat ulang riwayat login"
         >
-          Muat ulang
         </Button>
       </header>
 

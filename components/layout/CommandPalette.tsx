@@ -23,13 +23,8 @@ interface PaletteItem {
   trailing?: ReactNode;
 }
 
-/** Mirip pola XLVP-XXXX-XXXX atau potongannya → langsung cari key. */
 const KEY_LIKE = /^[A-Z0-9-]{3,}$/i;
 
-/**
- * Command palette (Ctrl/⌘ + K): lompat menu, aksi cepat, dan cari key.
- * Tanpa dependency; keyboard: ↑↓ pilih, Enter jalankan, Esc tutup.
- */
 export function CommandPalette({
   open,
   onClose,
@@ -54,7 +49,6 @@ export function CommandPalette({
 
   useEffect(() => setMounted(true), []);
 
-  // Reset saat dibuka; fokus ke input.
   useEffect(() => {
     if (!open) return;
     lastFocused.current = (document.activeElement as HTMLElement | null) ?? null;
@@ -81,7 +75,6 @@ export function CommandPalette({
     [onClose, router],
   );
 
-  // Cari key (debounce 250 ms) kalau query terlihat seperti key.
   useEffect(() => {
     const term = query.trim();
     if (!open || term.length < 3 || !KEY_LIKE.test(term)) {
@@ -179,7 +172,6 @@ export function CommandPalette({
 
     const list = [...keys, ...menu.filter(matches), ...quick.filter(matches)];
 
-    // Query mirip key tapi belum ada hasil → tawarkan "cari di Key List".
     if (term.length >= 3 && KEY_LIKE.test(query.trim()) && keys.length === 0) {
       list.unshift({
         id: "key:search",
@@ -192,7 +184,6 @@ export function CommandPalette({
     return list;
   }, [go, keyResults, onClose, onLogout, pathname, query, role]);
 
-  // Jaga indeks aktif tetap valid & terlihat.
   useEffect(() => {
     setActive(0);
   }, [query, keyResults.length]);
@@ -216,8 +207,6 @@ export function CommandPalette({
       event.preventDefault();
       onClose();
     } else if (event.key === "Tab") {
-      // Palette memakai Arrow/Enter untuk menjalankan item; jaga fokus tetap
-      // di input agar keyboard tidak keluar ke halaman di balik overlay.
       event.preventDefault();
       inputRef.current?.focus();
     }

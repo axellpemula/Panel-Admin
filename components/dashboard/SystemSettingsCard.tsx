@@ -10,18 +10,6 @@ import { useToast } from "@/components/ui/Toast";
 import { ApiClientError, apiGet, apiPut } from "@/lib/api/client";
 import { cn } from "@/lib/utils/cn";
 
-/**
- * Kartu "Batas & Sistem" (Owner) — form konfigurasi runtime.
- *
- * Nilai-nilai ini menggantikan konstanta yang dulu dipaku di `lib/constants.ts`:
- * rate limit validasi, kuota reset HWID, batas key/device, retensi log, ambang
- * analitik, API publik, dan notifikasi. Default tetap dari constants; kalau field
- * dibiarkan kosong pada penyimpanan, yang tersimpan adalah nilai saat ini.
- *
- * Semua nilai dijepit di server (lihat SETTINGS_BOUNDS) — form hanya memandu,
- * bukan satu-satunya pengaman.
- */
-
 type Section = "validate" | "hwid" | "keys" | "retention" | "analytics" | "api" | "notify";
 type EventKey = "autoBan" | "loginBurst" | "validationBurst" | "lowCredit" | "digest" | "security";
 
@@ -59,9 +47,7 @@ interface NumberField {
   key: string;
   label: string;
   hint: string;
-  /** Satuan yang ditampilkan di belakang input (mis. "menit"). */
   suffix?: string;
-  /** Pengali tampilan → nilai tersimpan (mis. TTL ditampilkan dalam menit). */
   scale?: number;
 }
 
@@ -203,7 +189,6 @@ export function SystemSettingsCard() {
     return Math.round((typeof raw === "number" ? raw : 0) / scale);
   };
 
-  /** Patch hanya berisi field yang benar-benar berubah (server merge sisanya). */
   const patch = useMemo(() => {
     if (!data || !draft) return {};
     const out: Record<string, Record<string, unknown>> = {};
@@ -460,7 +445,7 @@ export function SystemSettingsCard() {
                 loading={saving}
                 disabled={changedCount === 0}
               >
-                Simpan perubahan
+                Simpan
               </Button>
             </div>
           </div>

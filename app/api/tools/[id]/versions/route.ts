@@ -10,7 +10,6 @@ interface RouteParams {
   params: { id: string };
 }
 
-/** POST /api/tools/[id]/versions — tambah version baru untuk sebuah tool type. */
 export async function POST(request: NextRequest, route: RouteParams) {
   return withOwner(request, async (ctx) => {
     const toolTypeId = route.params.id;
@@ -24,7 +23,7 @@ export async function POST(request: NextRequest, route: RouteParams) {
     }
 
     const name = asString(body.name, 64);
-    if (!name) return jsonError("Nama version wajib diisi (maks 64 karakter)", "validation_error", 400);
+    if (!name) return jsonError("Nama version wajib diisi", "validation_error", 400);
 
     const { data: tool } = await ctx.admin
       .from("tool_types")

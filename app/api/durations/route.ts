@@ -6,10 +6,6 @@ import { asBool, asInt, asString } from "@/lib/utils/validate";
 
 export const dynamic = "force-dynamic";
 
-/**
- * GET /api/durations
- * Owner: semua preset (termasuk nonaktif). Reseller: hanya preset aktif.
- */
 export async function GET(request: NextRequest) {
   return withAuth(request, async (ctx) => {
     try {
@@ -30,7 +26,6 @@ export async function GET(request: NextRequest) {
   });
 }
 
-/** POST /api/durations — tambah preset durasi (Owner only). */
 export async function POST(request: NextRequest) {
   return withOwner(request, async (ctx) => {
     let body: { name?: unknown; days?: unknown; credit_cost?: unknown; is_active?: unknown };

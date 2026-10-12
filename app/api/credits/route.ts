@@ -23,11 +23,6 @@ interface CreditLogItem {
   created_by_username: string | null;
 }
 
-/**
- * GET /api/credits
- * Owner: semua log (bisa filter by reseller). Reseller: hanya milik sendiri.
- * Query params: from, to, action, user_id (owner), page, per_page, format=csv
- */
 export async function GET(request: NextRequest) {
   return withAuth(request, async (ctx) => {
     const params = request.nextUrl.searchParams;
@@ -36,7 +31,6 @@ export async function GET(request: NextRequest) {
     const action = params.get("action");
     const userIdParam = params.get("user_id");
     const format = params.get("format");
-    // Page di-clamp juga ke atas (nilai ekstrem → offset melewati batas integer).
     const page = Math.min(1_000_000, Math.max(1, Number.parseInt(params.get("page") ?? "1", 10) || 1));
     const perPageRaw = Number.parseInt(params.get("per_page") ?? "50", 10) || 50;
     const perPage = Math.min(500, Math.max(5, perPageRaw));
@@ -50,7 +44,6 @@ export async function GET(request: NextRequest) {
         )
         .order("created_at", { ascending: false });
 
-      // Reseller hanya melihat log miliknya.
       if (!ctx.isOwner) {
         query = query.eq("user_id", ctx.userId);
       } else if (userIdParam) {
@@ -69,7 +62,6 @@ export async function GET(request: NextRequest) {
         if (!Number.isNaN(toDate.getTime())) query = query.lte("created_at", toDate.toISOString());
       }
 
-      // Export CSV: ambil sampai 5000 baris terakhir.
       if (format === "csv") {
         const { data, error } = await query.range(0, 4999);
         if (error) return jsonError(errorMessage(error), "server_error", 500);

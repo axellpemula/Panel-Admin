@@ -8,13 +8,6 @@ import { Field, Input, Toggle } from "@/components/ui/Form";
 import { useToast } from "@/components/ui/Toast";
 import { ApiClientError, apiPost } from "@/lib/api/client";
 
-/**
- * Kartu "Ganti Password" (Pengaturan → Keamanan Akun).
- *
- * Alur: verifikasi password lama → simpan password baru → opsional putus semua
- * sesi lain (default aktif). Sesi yang sedang dipakai TIDAK ikut terputus, jadi
- * user tidak perlu login ulang setelah mengganti password.
- */
 export function PasswordCard() {
   const toast = useToast();
   const [currentPassword, setCurrentPassword] = useState("");
@@ -109,7 +102,6 @@ export function PasswordCard() {
           <Field
             label="Password baru"
             error={tooShort ? "Minimal 8 karakter" : undefined}
-            hint="8–72 karakter."
           >
             <Input
               type="password"
@@ -157,7 +149,7 @@ export function PasswordCard() {
             Sesi di perangkat ini tetap aktif.
           </span>
           <Button type="submit" loading={busy}>
-            Simpan password baru
+            Simpan
           </Button>
         </div>
       </form>

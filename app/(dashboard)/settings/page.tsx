@@ -18,22 +18,14 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-/**
- * Halaman Pengaturan (Owner & Reseller): info akun, info web, dan tema warna.
- * Semua data dibaca di server; tema awal dari cookie supaya pratinjau di
- * halaman sinkron dengan warna yang sedang dipakai.
- */
 export default async function SettingsPage() {
   const session = await requireSession("/settings");
   const mode = dbMode();
 
-  // Info web menampilkan nilai yang BERLAKU (konfigurasi runtime, bukan constants),
-  // supaya Owner tidak bingung saat limit diubah dari kartu "Batas & Sistem".
   const admin = createAdminClient();
   const runtime = await loadRuntime(admin);
   const limited = publicSettings(runtime);
 
-  // Owner butuh daftar reseller untuk "buat API key untuk akun lain".
   const resellers =
     session.isOwner
       ? ((
@@ -54,7 +46,7 @@ export default async function SettingsPage() {
     sqlitePath: mode === "sqlite" ? sqliteDatabasePath() : null,
     signingKeyReady: Boolean(licensePublicKey()),
     tokenTtlSeconds: runtime.validate.tokenTtlSeconds,
-    timezone: "Asia/Jakarta (WIB, UTC+7)",
+    timezone: "Asia/Jakarta",
     keyFormat: "XLVP-XXXX-XXXX",
     limits: {
       maxDeviceMin: limited.limits.maxDeviceMin,

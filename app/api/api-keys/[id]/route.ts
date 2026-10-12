@@ -12,14 +12,6 @@ interface RouteParams {
   params: { id: string };
 }
 
-/**
- * DELETE /api/api-keys/[id] — cabut (revoke) satu API key.
- *
- * Reseller hanya bisa mencabut key miliknya sendiri; Owner bisa mencabut key
- * siapa pun (untuk menangani kebocoran). Revoke bersifat **soft** — barisnya
- * tetap ada supaya riwayat pemakaian (`api_request_logs`) tidak kehilangan
- * konteks, tapi tokennya langsung tidak bisa dipakai lagi.
- */
 export async function DELETE(request: NextRequest, route: RouteParams) {
   return withAuth(request, async (ctx) => {
     const { id } = route.params;

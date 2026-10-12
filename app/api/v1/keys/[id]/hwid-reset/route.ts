@@ -17,7 +17,6 @@ interface RouteParams {
   params: { id: string };
 }
 
-/** Cari baris `keys` dari UUID atau key_value. */
 async function findKey(
   admin: SupabaseClient<Database>,
   raw: string,
@@ -33,20 +32,11 @@ async function findKey(
   return data ?? null;
 }
 
-/**
- * POST /api/v1/keys/[id]/hwid-reset
- * Reset HWID/device sebuah key — satu device (`{ "hardware_id": "..." }`) atau
- * semua device (`{ "all": true }`).
- *
- * Kuota cooldown reseller berlaku SAMA seperti di panel (`hwid.resetLimit` per
- * `hwid.resetWindowHours`); Owner bebas kuota. Setiap reset tercatat di audit log.
- */
 export async function POST(request: NextRequest, route: RouteParams) {
   return withApiKey(request, async (ctx) => {
     const raw = decodeURIComponent(route.params.id);
 
     const parsed = await readJsonBody(request, BODY_MAX);
-    // Body boleh kosong → dianggap reset semua (paling sering dipakai bot/skrip).
     const body = parsed.ok ? ((parsed.value ?? {}) as Record<string, unknown>) : {};
     const all = body.all === true || body.all === "true";
     const hardwareId = typeof body.hardware_id === "string" ? body.hardware_id.trim() : "";
@@ -59,11 +49,9 @@ export async function POST(request: NextRequest, route: RouteParams) {
       );
     }
 
-    // Panjang HWID sama dengan yang diterima /api/validate (16–128, tanpa spasi) —
-    // supaya nilai yang mustahil cocok dijawab 400, bukan 404 yang membingungkan.
     if (!all && (hardwareId.length < 16 || hardwareId.length > 128 || /\s/.test(hardwareId))) {
       return jsonError(
-        "`hardware_id` harus 16–128 karakter tanpa spasi (sama seperti yang dikirim tool)",
+        "`hardware_id` harus 16–128 karakter tanpa spasi sama seperti yang dikirim client",
         "validation_error",
         400,
       );

@@ -12,17 +12,6 @@ import { ApiClientError, apiDelete, apiGet } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/utils/format";
 import { parseUserAgent } from "@/lib/utils/user-agent";
 
-/**
- * Kartu "Sesi Aktif" (Pengaturan → Keamanan Akun).
- *
- * Menampilkan sesi login yang masih hidup + tombol "Keluar dari semua
- * perangkat lain" (memutus semua sesi kecuali yang sedang dipakai).
- *
- * Catatan mode Supabase: GoTrue tidak mengekspos daftar sesi per perangkat,
- * jadi daftar hanya berisi sesi yang sedang dipakai (`limited: true`) — tombol
- * putus sesi tetap berfungsi lewat scope `others`.
- */
-
 interface SessionItem {
   id: string;
   created_at: string | null;
@@ -126,7 +115,7 @@ export function SessionsCard() {
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
             <p className="max-w-md text-label text-muted">
               {data?.limited
-                ? "Mode Supabase tidak menampilkan daftar perangkat lengkap, tapi tombol di samping tetap memutus semua sesi lain."
+                ? "Mode server tidak menampilkan daftar perangkat lengkap, tapi tombol di samping tetap memutus semua sesi lain."
                 : "Sesi yang tidak kamu kenali? Putus semuanya, lalu ganti password."}
             </p>
             <Button
@@ -136,7 +125,7 @@ export function SessionsCard() {
               disabled={others.length === 0}
             >
               <LogOut size={14} strokeWidth={1.5} />
-              Keluar dari semua perangkat lain
+              Keluar dari semua perangkat
             </Button>
           </div>
         </>
@@ -145,7 +134,7 @@ export function SessionsCard() {
       <ConfirmDialog
         open={confirmOpen}
         title="Putus semua sesi lain?"
-        message="Semua perangkat dan browser lain yang sedang login ke akun ini akan langsung keluar. Sesi di perangkat ini tetap aktif."
+        message="Semua perangkat dan browser lain yang sedang login ke akun ini akan langsung keluar."
         confirmLabel="Putus semua"
         danger
         loading={revoking}

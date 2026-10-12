@@ -23,7 +23,6 @@ import {
   truncate,
 } from "@/lib/utils/format";
 
-// Recharts hanya di-load di halaman ini, dan hanya di client (bundle awal tetap ringan).
 const ValidationTrendChart = dynamic(
   () => import("@/components/dashboard/ValidationTrendChart"),
   { ssr: false, loading: () => <SkeletonChart /> },
@@ -129,23 +128,16 @@ const REASON_OPTIONS = [
   })),
 ];
 
-/** Tanggal hari ini (YYYY-MM-DD) menurut zona waktu Asia/Jakarta. */
 function todayJakarta(): string {
   return new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-/** Ringkas breakdown alasan gagal: "Key tidak valid ×12 · Key kedaluwarsa ×3". */
 function reasonBreakdown(reasons: Record<string, number>): string {
   return Object.entries(reasons)
     .map(([reason, count]) => `${VALIDATION_REASON_LABEL[reason] ?? reason} ×${formatNumber(count)}`)
     .join(" · ");
 }
 
-/**
- * Validation Attempts (Owner only): semua percobaan validasi key yang tercatat —
- * ringkasan, tren per jam, IP mencurigakan, key yang paling sering gagal, dan
- * daftar percobaan lengkap (filter + pagination + export CSV).
- */
 export function ValidationAttemptsView() {
   const toast = useToast();
 
@@ -192,7 +184,6 @@ export function ValidationAttemptsView() {
     void load();
   }, [load]);
 
-  // --- Debounce input pencarian IP & key (300 ms) ---
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setFilters((previous) =>
@@ -265,7 +256,7 @@ export function ValidationAttemptsView() {
           <h1 className="text-title font-medium">Validation Attempts</h1>
           <p className="mt-1 text-body text-muted">
             Semua percobaan validasi key yang tercatat: IP mencurigakan, key yang paling sering
-            gagal, deteksi penyalahgunaan (HWID dipakai banyak key / key dipakai banyak IP), dan
+            gagal, deteksi penyalahgunaan dan
             tren per jam. Data disimpan {thresholds ? `${thresholds.retention_days} hari` : "sesuai pengaturan"} terakhir.
           </p>
         </div>
@@ -278,7 +269,6 @@ export function ValidationAttemptsView() {
             aria-label="Muat ulang validation attempts"
             title="Muat ulang validation attempts"
           >
-            Muat ulang
           </Button>
           <Button
             size="sm"

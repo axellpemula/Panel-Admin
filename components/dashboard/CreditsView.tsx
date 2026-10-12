@@ -35,10 +35,6 @@ interface CreditsResponse {
   total_pages: number;
 }
 
-/**
- * Credit Log: riwayat topup, generate, dan perpanjang key.
- * Owner lihat semua (bisa difilter), Reseller hanya miliknya.
- */
 export function CreditsView({ isOwner }: { isOwner: boolean }) {
   const toast = useToast();
 
@@ -156,7 +152,6 @@ export function CreditsView({ isOwner }: { isOwner: boolean }) {
             aria-label="Muat ulang credit log"
             title="Muat ulang credit log"
           >
-            Muat ulang
           </Button>
           <Button
             size="sm"

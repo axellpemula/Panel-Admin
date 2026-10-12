@@ -16,16 +16,11 @@ const ERROR_MESSAGES: Record<string, string> = {
   session: "Sesi kamu berakhir. Silakan login lagi.",
 };
 
-/**
- * Halaman login (satu-satunya halaman publik).
- * Tidak ada halaman register — reseller dibuat Owner dari panel.
- */
 export default async function LoginPage({
   searchParams,
 }: {
   searchParams: { error?: string; next?: string };
 }) {
-  // Sudah login? Langsung ke dashboard (berlaku di kedua mode: Supabase & SQLite).
   const supabase = createClient();
   const {
     data: { user },

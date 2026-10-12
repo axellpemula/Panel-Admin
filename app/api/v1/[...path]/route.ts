@@ -6,11 +6,6 @@ import { jsonError } from "@/lib/utils/http";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/**
- * Catch-all `/api/v1/*` — endpoint yang tidak dikenal dijawab dengan JSON 404
- * (bukan halaman HTML 404 Next.js), supaya client API selalu bisa mem-parse
- * respons dan tahu daftar endpoint yang tersedia.
- */
 const AVAILABLE = [
   "GET /api/v1/me",
   "GET /api/v1/tools",
@@ -26,7 +21,7 @@ function notFound(request: NextRequest): Response {
   const token = readApiToken(request);
   return jsonError(
     token
-      ? "Endpoint tidak ditemukan. Lihat daftar endpoint di docs/RESELLER_API.md."
+      ? "Endpoint tidak ditemukan. Lihat daftar endpoint di docs."
       : "Endpoint tidak ditemukan. Sertakan header `Authorization: Bearer <API key>` untuk memakai API ini.",
     "not_found",
     404,

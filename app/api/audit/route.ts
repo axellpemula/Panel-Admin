@@ -25,14 +25,6 @@ interface AuditLogItem {
   detail: Record<string, unknown> | null;
 }
 
-/**
- * GET /api/audit
- * Audit log aksi Owner/Reseller/sistem terhadap key (ban, unban, hapus key,
- * reset HWID, auto-ban) — hanya untuk Owner (dipakai saat cek jejak/sengketa).
- *
- * Query params: from, to, action, actor (user_id), key (cari key_value),
- * page, per_page, format=csv
- */
 export async function GET(request: NextRequest) {
   return withOwner(request, async (ctx) => {
     const params = request.nextUrl.searchParams;
@@ -40,10 +32,8 @@ export async function GET(request: NextRequest) {
     const to = params.get("to");
     const action = params.get("action");
     const actorId = params.get("actor");
-    // Wildcard LIKE (%, _) dibuang supaya pencarian selalu literal.
     const keySearch = (params.get("key") ?? "").replace(/[%_,()\\]/g, "").trim().slice(0, 64);
     const format = params.get("format");
-    // Page di-clamp juga ke atas (nilai ekstrem → offset melewati batas integer).
     const pageRaw = Number.parseInt(params.get("page") ?? "1", 10);
     const page = Math.min(
       1_000_000,
@@ -65,7 +55,6 @@ export async function GET(request: NextRequest) {
         query = query.eq("action", action as AuditAction);
       }
       if (actorId === "system") {
-        // Aksi oleh sistem (auto-ban) tidak punya actor_id.
         query = query.is("actor_id", null);
       } else if (actorId) {
         query = query.eq("actor_id", actorId);
@@ -82,7 +71,6 @@ export async function GET(request: NextRequest) {
         if (!Number.isNaN(toDate.getTime())) query = query.lte("created_at", toDate.toISOString());
       }
 
-      // Export CSV: ambil sampai 5000 baris terakhir.
       if (format === "csv") {
         const { data, error } = await query.range(0, 4999);
         if (error) return jsonError(errorMessage(error), "server_error", 500);
@@ -145,10 +133,6 @@ export async function GET(request: NextRequest) {
   });
 }
 
-/**
- * Normalisasi satu baris audit_logs.
- * `detail` bisa berupa objek (Postgres JSONB) atau string JSON (SQLite TEXT).
- */
 function normalizeLog(row: unknown): AuditLogItem {
   const record = row as Record<string, unknown>;
 

@@ -8,17 +8,6 @@ import { errorMessage, jsonError, jsonOk } from "@/lib/utils/http";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/**
- * GET /api/activity
- * Jejak aktivitas akun & sistem yang BUKAN aksi pada key: ganti password, putus
- * sesi, buat/cabut API key, ubah pengaturan, topup/penyesuaian credit, dan
- * penyambungan bot Telegram.
- *
- * - Owner: melihat semua aktivitas (filter aktor tersedia).
- * - Reseller: hanya aktivitas miliknya sendiri (filter aktor diabaikan).
- *
- * Query params: from, to, action, actor, page, per_page, format=csv
- */
 export async function GET(request: NextRequest) {
   return withAuth(request, async (ctx) => {
     const params = request.nextUrl.searchParams;
@@ -28,8 +17,6 @@ export async function GET(request: NextRequest) {
     const actor = params.get("actor");
     const format = params.get("format");
 
-    // Aksi yang tidak dikenal jangan diam-diam diabaikan (dulu filter hilang dan
-    // semua aktivitas ikut terkirim) — UI hanya mengirim nilai dari daftar ini.
     if (action && !ACTIVITY_ACTIONS.includes(action as ActivityAction)) {
       return jsonError(
         "Parameter `action` tidak dikenal",
@@ -43,11 +30,7 @@ export async function GET(request: NextRequest) {
     const page = Math.min(1_000_000, Math.max(1, Number.isFinite(pageRaw) ? pageRaw : 1));
     const perPageRaw = Number.parseInt(params.get("per_page") ?? "50", 10);
     const perPage = Math.min(500, Math.max(5, Number.isFinite(perPageRaw) ? perPageRaw : 50));
-
-    // Reseller selalu terkunci ke aktivitasnya sendiri.
     const actorFilter = ctx.isOwner ? (actor === "system" ? undefined : actor ?? undefined) : ctx.userId;
-
-    /** Tanggal `from`/`to` dari form `<input type="date">` → ISO (awal & akhir hari WIB). */
     const dayStart = (value: string): string | null => {
       const date = new Date(`${value}T00:00:00+07:00`);
       return Number.isNaN(date.getTime()) ? null : date.toISOString();

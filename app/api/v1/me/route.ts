@@ -6,11 +6,6 @@ import { jsonOk } from "@/lib/utils/http";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/**
- * GET /api/v1/me
- * Identitas pemilik API key + saldo credit + kuota API yang berlaku.
- * Cocok untuk "ping" pertama setelah integrasi.
- */
 export async function GET(request: NextRequest) {
   return withApiKey(request, async (ctx) =>
     jsonOk({

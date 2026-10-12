@@ -10,8 +10,6 @@ import { parseTheme, THEME_COOKIE, themeColorHex, themeCssVariables } from "@/li
 
 import "./globals.css";
 
-// Geist Sans (UI) + Geist Mono (key & HWID) — di-serve lewat next/font,
-// tanpa request ke CDN saat runtime.
 const geistSans = GeistSans;
 const geistMono = GeistMono;
 
@@ -21,12 +19,10 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-/** Tema dibaca dari cookie `xloop_theme` (diatur di menu Pengaturan). */
 function currentTheme() {
   return parseTheme(cookies().get(THEME_COOKIE.name)?.value);
 }
 
-/** `theme-color` mengikuti latar efektif tema (bar atas browser HP). */
 export function generateViewport(): Viewport {
   return {
     width: "device-width",
@@ -36,8 +32,6 @@ export function generateViewport(): Viewport {
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  // CSS variable tema ditulis sebagai inline style di <html> supaya warna
-  // pilihan user sudah final di HTML pertama — tidak berkedip dari default.
   const themeStyle = themeCssVariables(currentTheme()) as CSSProperties;
   const compact = parseDensity(cookies().get(DENSITY_COOKIE.name)?.value) === "compact";
 

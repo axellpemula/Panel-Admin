@@ -20,16 +20,6 @@ import {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/**
- * POST /api/validate — endpoint publik untuk dipanggil dari sisi tool/mod.
- *
- * Prinsip: client tidak pernah dipercaya. Semua response sukses ditandatangani
- * Ed25519, terikat ke nonce + HWID request, dan punya masa berlaku singkat.
- *
- * Urutan: rate limit → input → key ada → status → tool → version → expired →
- * slot HWID (atomic) → last_used → tanda tangan → catat log.
- */
-
 interface ValidateBody {
   key?: unknown;
   tool_slug?: unknown;
@@ -46,7 +36,6 @@ interface ValidatedInput {
   nonce: string;
 }
 
-/** Response sukses bertanda tangan. */
 interface SignedResponse {
   payload: string;
   signature: string;
@@ -59,7 +48,6 @@ function isPlainFiniteString(value: unknown, min: number, max: number): value is
 export async function POST(request: NextRequest) {
   const ip = clientIp(request);
 
-  // ---------- 1. Baca & validasi body (maks 2 KB) ----------
   const raw = await readJsonBody(request, LIMITS.bodyBytes);
   if (!raw.ok) {
     await logAttempt(null, ip, null, null, false, "invalid_request");
@@ -88,10 +76,8 @@ export async function POST(request: NextRequest) {
     return validateFailure("server_error", 500);
   }
 
-  // Konfigurasi runtime (limit, TTL token) — diatur Owner dari Pengaturan.
   const runtime = await loadRuntime(admin);
 
-  // ---------- 2. Rate limit (query, bukan in-memory) ----------
   const rateLimit = await checkRateLimits(
     admin,
     ip,
@@ -104,20 +90,16 @@ export async function POST(request: NextRequest) {
     return validateRateLimited();
   }
 
-  // Anti-bruteforce: IP dengan ≥ N `invalid_key` dalam window → semua
-  // kegagalan berikutnya disamarkan jadi `invalid_key`.
   const bruteForce = await isBruteForceIp(admin, ip, runtime);
   const maskFailures = bruteForce.active;
 
-  // Notifikasi Owner begitu ambang bruteforce BARU terlampaui (sekali per window
-  // berkat dedupe_key — pengiriman tidak menahan response).
   if (bruteForce.justCrossed) {
     notifyInBackground(admin, {
       event: "validation_burst",
       title: "Percobaan brute-force key terdeteksi",
       lines: [
         `IP ${ip} sudah ${bruteForce.count}x gagal dengan key tidak dikenal dalam ${runtime.validate.bruteForceWindowMinutes} menit terakhir.`,
-        "Semua kegagalan berikutnya dari IP ini disamarkan sebagai `invalid_key` (anti-bruteforce).",
+        "Semua kegagalan berikutnya dari IP ini disamarkan sebagai `invalid_key` anti-bruteforce.",
         `Untuk memblokir permanen, atur firewall/proxy di depan panel.`,
       ],
       dedupeKey: `validation_burst:${ip}`,
@@ -125,7 +107,6 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  /** Helper: catat log lalu balas gagal (dengan masking kalau perlu). */
   const fail = async (reason: ValidationReason, status = 200) => {
     await logAttempt(admin, ip, key, hardwareId, false, reason);
     if (maskFailures && reason !== "rate_limited" && reason !== "invalid_request") {
@@ -134,7 +115,6 @@ export async function POST(request: NextRequest) {
     return validateFailure(reason, status);
   };
 
-  // ---------- 3. Cek key ada ----------
   const { data: keyRow, error: keyError } = await admin
     .from("keys")
     .select("id, key_value, status, expired_at, max_device, tool_type_id, tool_version_id, created_by")
@@ -147,14 +127,12 @@ export async function POST(request: NextRequest) {
   }
   if (!keyRow) return fail("invalid_key");
 
-  // ---------- 4. Cek status key ----------
   if (keyRow.status === "banned") return fail("key_banned");
   if (keyRow.status !== "active") {
     // Status 'expired' (atau nilai tak dikenal) diperlakukan sebagai expired.
     return fail("key_expired");
   }
 
-  // ---------- 5. Cek tool_slug ----------
   const { data: tool, error: toolError } = await admin
     .from("tool_types")
     .select("id, slug, is_active")
@@ -167,7 +145,6 @@ export async function POST(request: NextRequest) {
   }
   if (!tool || tool.slug !== toolSlug || tool.is_active !== true) return fail("wrong_tool");
 
-  // ---------- 6. Cek tool_version ----------
   const { data: version, error: versionError } = await admin
     .from("tool_versions")
     .select("id, name, is_active")
@@ -182,17 +159,14 @@ export async function POST(request: NextRequest) {
     return fail("wrong_version");
   }
 
-  // ---------- 7. Cek expired ----------
   if (keyRow.expired_at) {
     const expiredAt = new Date(keyRow.expired_at).getTime();
     if (Number.isFinite(expiredAt) && expiredAt <= Date.now()) {
-      // Sinkronkan status di DB (best-effort, tidak menghambat response).
       void admin.from("keys").update({ status: "expired" }).eq("id", keyRow.id);
       return fail("key_expired");
     }
   }
 
-  // ---------- 8. Registrasi device (atomic, anti race) ----------
   const { data: deviceResult, error: deviceError } = await admin.rpc("register_device", {
     p_key_id: keyRow.id,
     p_hwid: hardwareId,
@@ -210,16 +184,7 @@ export async function POST(request: NextRequest) {
   if (!deviceRow) return fail("server_error", 500);
 
   if (deviceRow.result !== "ok") {
-    // Slot penuh:
-    // 1. Catat percobaan ini DULU ke validation_attempts supaya pemeriksaan ban
-    //    (RPC check_auto_ban di bawah) bisa melihat HWID ini saat menghitung
-    //    jumlah HWID berbeda dalam window.
     await logAttempt(admin, ip, key, hardwareId, false, "device_limit_exceeded");
-    // 2. Panggil RPC atomic yang mengunci per key (advisory lock di Postgres /
-    //    serialisasi alami di SQLite). Di dalamnya: hitung HWID unik, ban bila
-    //    perlu, dan catat audit log. Tanpa ini, burst paralel dari 5 HWID
-    //    berbeda bisa lolos karena request-request tersebut membaca hitungan
-    //    lama secara bersamaan.
     try {
       const banResult = await admin.rpc("check_auto_ban", {
         p_key_id: keyRow.id,
@@ -234,7 +199,6 @@ export async function POST(request: NextRequest) {
         ? (banResult.data[0] as { result?: string; distinct_hwids?: number } | undefined)
         : undefined;
 
-      // 'banned' = baru saja diblokir oleh panggilan ini (bukan 'already').
       if (banRow?.result === "banned") {
         notifyInBackground(admin, {
           event: "key_auto_ban",
@@ -243,7 +207,7 @@ export async function POST(request: NextRequest) {
             `Key ${keyRow.key_value} diblokir otomatis: ${banRow.distinct_hwids ?? runtime.validate.autoBanDistinctHwids} HWID berbeda mencoba memakainya dalam ${runtime.validate.autoBanWindowMinutes} menit.`,
             `HWID pemicu: ${hardwareId}`,
             `IP: ${ip}`,
-            "Unban hanya bisa dilakukan Owner dari Key List (reseller tidak bisa membukanya).",
+            "Unban hanya bisa dilakukan Owner, reseller tidak bisa membukanya.",
           ],
           dedupeKey: `auto_ban:${keyRow.id}`,
           notifyUserIds: [keyRow.created_by],
@@ -257,18 +221,14 @@ export async function POST(request: NextRequest) {
         });
       }
     } catch (rpcError) {
-      // Jangan sampai gagal ban menggagalkan response ke user — cukup log.
       console.warn("[validate] check_auto_ban gagal:", (rpcError as Error).message);
     }
-    // Kembalikan device_limit_exceeded (atau invalid_key kalau IP-nya
-    // sedang dalam mode anti-bruteforce masking).
     if (maskFailures) return validateFailure("invalid_key");
     return validateFailure("device_limit_exceeded");
   }
 
   const currentDevices = Number(deviceRow.current_devices) || 1;
 
-  // ---------- 9. Update last_used ----------
   const nowIso = new Date().toISOString();
   const { error: touchError } = await admin
     .from("keys")
@@ -276,11 +236,9 @@ export async function POST(request: NextRequest) {
     .eq("id", keyRow.id);
 
   if (touchError) {
-    // Tidak fatal untuk validasi, tapi wajib terlihat di log server.
     console.warn("[validate] update last_used gagal:", touchError.message);
   }
 
-  // ---------- 10. Ambil payload rahasia tool (tidak pernah di-log) ----------
   const { data: secretRow, error: secretError } = await admin
     .from("tool_secrets")
     .select("secret_payload")
@@ -296,7 +254,6 @@ export async function POST(request: NextRequest) {
       ? secretRow.secret_payload
       : null;
 
-  // ---------- 11. Bangun payload + tanda tangani ----------
   let signed: SignedResponse;
   try {
     const ttlSeconds = runtime.validate.tokenTtlSeconds;
@@ -317,7 +274,6 @@ export async function POST(request: NextRequest) {
       secret_payload: secretPayload,
     };
 
-    // Signature dihitung atas byte JSON payload SEBELUM di-encode base64.
     const payloadJson = JSON.stringify(payload);
     const privateKey = loadSigningKey(licensePrivateKey(), "private");
     const signature = signJsonPayload(payloadJson, privateKey);
@@ -327,12 +283,10 @@ export async function POST(request: NextRequest) {
       signature: base64Encode(signature),
     };
   } catch (error) {
-    // Private key belum diset / formatnya salah — jangan pernah log isinya.
     console.error("[validate] gagal menandatangani payload:", (error as Error).message);
     return fail("server_error", 500);
   }
 
-  // ---------- 12. Catat keberhasilan ----------
   await logAttempt(admin, ip, key, hardwareId, true, null);
 
   return Response.json(signed, {
@@ -344,12 +298,10 @@ export async function POST(request: NextRequest) {
   });
 }
 
-/** Method lain tidak dilayani. */
 export async function GET() {
   return jsonError("Method tidak didukung. Gunakan POST.", "validation_error", 405);
 }
 
-/** Validasi ketat input — dilakukan sebelum query apa pun. */
 function parseInput(body: ValidateBody): ValidatedInput | null {
   if (!isPlainFiniteString(body.key, 14, 14)) return null;
   const key = body.key.toUpperCase();
@@ -378,12 +330,6 @@ function parseInput(body: ValidateBody): ValidatedInput | null {
   };
 }
 
-/**
- * Rate limit berbasis tabel validation_attempts (aman untuk serverless):
- * - 30 request/menit per IP
- * - 15 request/menit per key
- * Percobaan yang sudah `rate_limited` tidak dihitung agar tidak terkunci selamanya.
- */
 async function checkRateLimits(
   admin: SupabaseClient<Database>,
   ip: string,
@@ -399,8 +345,6 @@ async function checkRateLimits(
       .select("id", { count: "exact", head: true })
       .eq("ip", ip)
       .gte("created_at", oneMinuteAgo)
-      // Null-safe: SEMUA percobaan dihitung (termasuk yang sukses, reason NULL),
-      // kecuali percobaan yang sudah kena rate limit supaya tidak terkunci.
       .or("reason.is.null,reason.neq.rate_limited"),
     admin
       .from("validation_attempts")
@@ -415,11 +359,6 @@ async function checkRateLimits(
   return false;
 }
 
-/**
- * IP dengan ≥ N `invalid_key` dalam window terakhir dianggap bruteforce.
- * Mengembalikan juga `justCrossed` (tepat menyentuh ambang) supaya notifikasi
- * hanya dikirim sekali saat ambang baru terlampaui.
- */
 async function isBruteForceIp(
   admin: SupabaseClient<Database>,
   ip: string,
@@ -449,10 +388,6 @@ async function isBruteForceIp(
   };
 }
 
-/**
- * Catat percobaan validasi. Kegagalan menulis log tidak boleh menggagalkan
- * response — jadi error hanya di-log ke console server (tanpa data sensitif).
- */
 async function logAttempt(
   admin: SupabaseClient<Database> | null,
   ip: string,

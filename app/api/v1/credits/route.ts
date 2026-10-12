@@ -6,10 +6,6 @@ import { errorMessage, jsonError, jsonOk } from "@/lib/utils/http";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/**
- * GET /api/v1/credits — saldo + riwayat credit pemilik API key.
- * Query: from, to (YYYY-MM-DD WIB), action, page, per_page.
- */
 export async function GET(request: NextRequest) {
   return withApiKey(request, async (ctx) => {
     const params = request.nextUrl.searchParams;

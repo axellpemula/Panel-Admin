@@ -11,11 +11,6 @@ interface RouteParams {
   params: { id: string };
 }
 
-/**
- * GET /api/tools/[id]/secret
- * Hanya mengembalikan STATUS (ada / tidak ada) — isinya tidak pernah dikirim balik
- * ke browser, sesuai aturan payload rahasia.
- */
 export async function GET(request: NextRequest, route: RouteParams) {
   return withOwner(request, async (ctx) => {
     const { id } = route.params;
@@ -36,11 +31,6 @@ export async function GET(request: NextRequest, route: RouteParams) {
   });
 }
 
-/**
- * PUT /api/tools/[id]/secret
- * Simpan / ganti payload rahasia tool (Owner only, service role).
- * Kirim `secret_payload: null` atau string kosong untuk menghapus.
- */
 export async function PUT(request: NextRequest, route: RouteParams) {
   return withOwner(request, async (ctx) => {
     const { id } = route.params;
@@ -83,7 +73,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
 
     if (error) return jsonError(error.message, "server_error", 500);
 
-    // Isi payload tidak pernah di-log dan tidak dikembalikan.
     return jsonOk({ has_secret: true });
   });
 }

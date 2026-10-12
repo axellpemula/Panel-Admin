@@ -19,7 +19,6 @@ interface RouteParams {
   params: { id: string };
 }
 
-/** GET /api/keys/[id] — detail key (dipakai modal detail). */
 export async function GET(request: NextRequest, route: RouteParams) {
   return withAuth(request, async (ctx) => {
     const { key, allowed, error } = await loadKeyWithAccess(ctx, route.params.id);
@@ -43,17 +42,6 @@ interface EditBody {
   max_device?: unknown;
 }
 
-/**
- * PUT /api/keys/[id]
- *
- * Owner  : semua mode — "preset" (perpanjang pakai preset), "extend" (tambah X hari),
- *          "set" (tanggal baru), "lifetime", ubah note, ubah max device. Gratis.
- * Reseller: HANYA "preset" (perpanjang pakai preset yang disediakan Owner) atau "none".
- *          Biaya = harga preset × max device key tersebut (device yang terdaftar ikut
- *          diperpanjang). Menambah max device juga dihitung device baru, jadi wajib
- *          memilih preset dan ikut dikenakan biaya. Mengubah catatan / menurunkan
- *          max device tanpa perpanjang tetap gratis.
- */
 export async function PUT(request: NextRequest, route: RouteParams) {
   return withAuth(request, async (ctx) => {
     const { key, allowed, error } = await loadKeyWithAccess(ctx, route.params.id);
@@ -68,18 +56,14 @@ export async function PUT(request: NextRequest, route: RouteParams) {
 
     const mode = typeof body.mode === "string" ? body.mode : "none";
     const updates: Partial<KeyRow> = {};
-
-    // Batas max device mengikuti konfigurasi runtime (Pengaturan).
     const runtime = await loadRuntime(ctx.admin);
 
-    // --- Note ---
     if (body.note !== undefined) {
       const note = asOptionalString(body.note, LIMITS.noteMax);
       if (note === undefined) return jsonError("Note tidak valid", "validation_error", 400);
       updates.note = note;
     }
 
-    // --- Max device ---
     if (body.max_device !== undefined) {
       const maxDevice = asInt(
         body.max_device,
@@ -105,13 +89,12 @@ export async function PUT(request: NextRequest, route: RouteParams) {
       updates.max_device = maxDevice;
     }
 
-    // --- Batasan role: reseller hanya boleh memperpanjang dengan preset ---
     const requestedPresetId = asString(body.duration_preset_id, 64);
     const deviceIncreased = updates.max_device !== undefined && updates.max_device > key.max_device;
 
     if (!ctx.isOwner && (mode === "extend" || mode === "set" || mode === "lifetime")) {
       return jsonError(
-        "Reseller hanya bisa memperpanjang pakai preset durasi dari Owner",
+        "Reseller hanya bisa memperpanjang pakai preset durasi yang sudah ada",
         "forbidden",
         403,
       );
@@ -124,7 +107,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
       );
     }
 
-    // --- Durasi / expired ---
     let newExpiredAt: string | null | undefined;
     let usedPreset: DurationPresetRow | null = null;
 
@@ -147,7 +129,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
 
       usedPreset = preset;
 
-      // Perpanjang dari tanggal expired sekarang (kalau sudah lewat / Lifetime: dari sekarang).
       const baseMs = key.expired_at ? new Date(key.expired_at).getTime() : Date.now();
       const base = Number.isFinite(baseMs) ? Math.max(baseMs, Date.now()) : Date.now();
       newExpiredAt = new Date(base + preset.days * 86_400_000).toISOString();
@@ -162,9 +143,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
       newExpiredAt = new Date(base + addDays * 86_400_000).toISOString();
       updates.duration_days = (key.duration_days ?? 0) + addDays;
     } else if (mode === "set") {
-      // Date-only (YYYY-MM-DD) → akhir hari WIB (sesuai hint di UI: "sampai akhir hari").
-      // Format lain (ISO datetime) → dipakai apa adanya. asIsoDate dicoba belakangan
-      // supaya tanggal date-only tidak berhenti di 00:00 UTC (07:00 WIB).
       const rawExpired = typeof body.expired_at === "string" ? body.expired_at.trim() : "";
       const parsed = /^\d{4}-\d{2}-\d{2}$/.test(rawExpired)
         ? asDateOnlyToIso(rawExpired)
@@ -183,7 +161,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
 
     if (newExpiredAt !== undefined) {
       updates.expired_at = newExpiredAt;
-      // Sinkronkan status: banned tetap banned, sisanya dihitung ulang.
       if (key.status !== "banned") {
         const isFuture = newExpiredAt === null || new Date(newExpiredAt).getTime() > Date.now();
         updates.status = isFuture ? "active" : "expired";
@@ -194,9 +171,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
       return jsonError("Tidak ada perubahan yang dikirim", "validation_error", 400);
     }
 
-    // --- Biaya credit (reseller) ---
-    // Perpanjang pakai preset ATAU menambah max device = unit baru untuk semua device key ini,
-    // jadi biayanya harga preset × max device (yang baru).
     const effectiveMaxDevice = updates.max_device ?? key.max_device;
     const unitPrice = usedPreset?.credit_cost ?? 0;
     const cost = !ctx.isOwner ? extendCreditCost(unitPrice, effectiveMaxDevice) : 0;
@@ -220,8 +194,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
     const { error: updateError } = await ctx.admin.from("keys").update(updates).eq("id", key.id);
     if (updateError) return jsonError(updateError.message, "server_error", 500);
 
-    // Potong credit setelah update; kalau gagal (saldo berubah di tengah jalan),
-    // kembalikan key ke kondisi semula supaya tidak ada key "gratis".
     let balanceAfter = balanceBefore;
     if (cost > 0) {
       balanceAfter = await spendCredit(ctx.admin, ctx.userId, cost);
@@ -245,7 +217,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
         );
       }
 
-      // Simpan total credit yang dipakai key ini (dipakai fitur pengembalian saat dihapus).
       await ctx.admin
         .from("keys")
         .update({ credit_cost: (Number(key.credit_cost) || 0) + cost })
@@ -260,7 +231,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
         createdBy: ctx.userId,
       });
 
-      // Saldo melewati ambang tipis → notifikasi (sekali per window).
       notifyLowCredit(ctx.admin, {
         userId: ctx.userId,
         username: ctx.profile.username,
@@ -286,40 +256,18 @@ export async function PUT(request: NextRequest, route: RouteParams) {
   });
 }
 
-/**
- * DELETE /api/keys/[id] — hapus permanen beserta seluruh HWID terdaftarnya.
- *
- * **Pengembalian credit (keadilan untuk reseller).** Kalau Owner menghapus key milik reseller
- * yang **masih aktif dan belum expired**, seluruh credit yang sudah dipakai untuk key itu
- * (`keys.credit_cost` — hasil generate + perpanjang) dikembalikan ke reseller tersebut.
- *
- * Syaratnya ketat (lihat `lib/utils/refund.ts`): hanya Owner yang menghapus, key milik reseller,
- * status `active`, belum lewat tanggal expired, dan ada credit yang dibayar. Key `expired`,
- * `banned`, key milik Owner sendiri, atau penghapusan oleh reseller sendiri → **tanpa
- * pengembalian**.
- *
- * Urutan eksekusi: hitung dulu nilai pengembalian → hapus key → tambah credit lewat
- * `add_credit` + catat log `refund`. Kalau penambahan credit gagal (mis. gangguan database),
- * key tetap terhapus dan responsnya memuat `refund.error` supaya Owner tahu harus topup manual —
- * daripada mengembalikan credit dulu lalu gagal menghapus key (bisa berulang jadi credit gratis).
- */
 export async function DELETE(request: NextRequest, route: RouteParams) {
   return withAuth(request, async (ctx) => {
     const { key, allowed, error } = await loadKeyWithAccess(ctx, route.params.id);
     if (!allowed) return error as Response;
 
-    // Nilai pengembalian dihitung SEBELUM key dihapus.
     const refundable = isKeyRefundableOnDelete(key, {
       userId: ctx.userId,
       isOwner: ctx.isOwner,
     });
     const refundAmountValue = refundable ? refundAmount(key) : 0;
-
-    // Username pemilik key — dipakai di toast panel (refund) dan audit log.
     const keyOwnerUsername = await getProfileUsername(ctx.admin, key.created_by);
 
-    // device_logs punya ON DELETE CASCADE, tapi kita hapus eksplisit supaya
-    // perilakunya tetap benar kalau constraint diubah di kemudian hari.
     const { data: removedDevices, error: deviceError } = await ctx.admin
       .from("device_logs")
       .delete()
@@ -330,7 +278,6 @@ export async function DELETE(request: NextRequest, route: RouteParams) {
     const { error: deleteError } = await ctx.admin.from("keys").delete().eq("id", key.id);
     if (deleteError) return jsonError(deleteError.message, "server_error", 500);
 
-    // Hasil akhir response (refund bisa gagal — key tetap terhapus).
     let refundResult: {
       amount: number;
       user_id: string;
@@ -370,9 +317,6 @@ export async function DELETE(request: NextRequest, route: RouteParams) {
       }
     }
 
-    // Jejak audit: siapa yang menghapus key + hasil pengembalian credit.
-    // key_id sengaja NULL — key sudah dihapus saat log ditulis (FK akan menolak
-    // referensi yang menggantung); identitas key tetap tercatat via key_value.
     await recordAuditLog(ctx.admin, {
       actorId: ctx.userId,
       actorUsername: ctx.profile.username,

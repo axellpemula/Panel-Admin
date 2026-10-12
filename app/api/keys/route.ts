@@ -7,19 +7,11 @@ import { errorMessage, jsonError, jsonOk } from "@/lib/utils/http";
 
 export const dynamic = "force-dynamic";
 
-/**
- * GET /api/keys
- * Owner → semua key. Reseller → hanya key miliknya.
- *
- * Query params: q, status, tool_type_id, version_id, created_by (owner only),
- * sort, order, page, per_page
- */
 export async function GET(request: NextRequest) {
   return withAuth(request, async (ctx) => {
     const params = request.nextUrl.searchParams;
 
     try {
-      // Pastikan key yang sudah lewat tanggal expired langsung berstatus expired.
       await refreshExpiredKeys(ctx.admin);
 
       const page = Number.parseInt(params.get("page") ?? "1", 10);
@@ -34,11 +26,8 @@ export async function GET(request: NextRequest) {
       const createdBy = params.get("created_by");
 
       const result = await listKeys(ctx.admin, {
-        // Reseller hanya melihat key miliknya sendiri.
         userId: ctx.isOwner ? undefined : ctx.userId,
         createdBy: ctx.isOwner && createdBy ? createdBy : undefined,
-        // Batas 64 karakter (sama dengan sanitizeSearch) — key_value cuma 14 karakter,
-        // jadi ini cukup dan menghindari query LIKE dengan payload sangat panjang.
         search: (params.get("q") ?? "").slice(0, 64),
         status: params.get("status") ?? undefined,
         toolTypeId: params.get("tool_type_id") ?? undefined,

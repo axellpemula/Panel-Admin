@@ -43,7 +43,6 @@ const EMPTY_FORM: ToolFormState = {
   secret: "",
 };
 
-/** Halaman Tool Management (Owner): CRUD tool type, version, dan payload rahasia. */
 export function ToolsView() {
   const toast = useToast();
 

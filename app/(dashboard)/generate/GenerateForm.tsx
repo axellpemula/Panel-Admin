@@ -69,7 +69,6 @@ export function GenerateForm({
 
   const quantityMax = isOwner ? LIMITS.quantityOwnerMax : LIMITS.quantityResellerMax;
 
-  // --- Muat tool, version, dan preset durasi ---
   const loadOptions = useCallback(async () => {
     setLoading(true);
     try {
@@ -78,7 +77,6 @@ export function GenerateForm({
         apiGet<{ presets: DurationPresetRow[] }>("/api/durations"),
       ]);
 
-      // Hanya tool & version aktif yang bisa dipilih.
       const activeTools = toolsResponse.tools
         .filter((tool) => tool.is_active)
         .map((tool) => ({
@@ -109,7 +107,6 @@ export function GenerateForm({
     [toolTypeId, tools],
   );
 
-  // Version otomatis mengikuti tool yang dipilih.
   useEffect(() => {
     const firstVersion = selectedTool?.versions[0]?.id ?? null;
     setVersionId((previous) => {
@@ -127,7 +124,6 @@ export function GenerateForm({
 
   const quantityNumber = Number.parseInt(quantity, 10) || 0;
   const maxDeviceNumber = Number.parseInt(maxDevice, 10) || 0;
-  // 1 unit harga = 1 key x 1 device, jadi quantity & max device sama-sama menaikkan biaya.
   const estimatedCost = isOwner
     ? 0
     : generateCreditCost(selectedPreset?.credit_cost ?? 0, quantityNumber, maxDeviceNumber);
@@ -292,7 +288,7 @@ export function GenerateForm({
                 )}
                 {durationMode === "custom" ? (
                   <p className="text-label text-muted">
-                    Isi 0 untuk membuat key Lifetime (tanpa tanggal expired).
+                    Isi 0 untuk membuat key tanpa expired.
                   </p>
                 ) : null}
               </div>
@@ -334,7 +330,7 @@ export function GenerateForm({
         </div>
 
         <div className="mt-4">
-          <Field label="Note (opsional)" hint="Catatan internal, tidak dikirim ke sisi tool.">
+          <Field label="Note (opsional)" hint="Catatan internal.">
             <Textarea
               value={note}
               maxLength={LIMITS.noteMax}

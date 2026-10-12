@@ -18,7 +18,7 @@ export default async function GeneratePage() {
           Buat key baru untuk tool yang dipilih.
           {session.isOwner
             ? " Owner bisa memakai preset durasi atau durasi custom, tanpa potongan credit."
-            : " Durasi memakai preset dari Owner — biaya dihitung 1 unit = 1 key × 1 device, jadi quantity dan max device sama-sama menambah biaya."}
+            : " Durasi memakai preset yang sudah di sediakan — biaya dihitung 1 unit = 1 key × 1 device, jadi quantity dan max device sama-sama menambah biaya."}
         </p>
       </header>
 

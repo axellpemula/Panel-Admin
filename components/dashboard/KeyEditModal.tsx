@@ -25,16 +25,6 @@ interface EditResponse {
   };
 }
 
-/**
- * Modal edit key.
- *
- * Owner   : bebas — perpanjang pakai preset, tambah hari, set tanggal, Lifetime, ubah
- *           note, ubah max device. Semua gratis.
- * Reseller: hanya boleh memperpanjang pakai preset dari Owner. Biaya =
- *           `harga preset × max device` (device yang terdaftar ikut diperpanjang),
- *           jadi menambah max device pun butuh preset dan ikut dipotong credit.
- *           Ubah catatan / menurunkan max device tanpa perpanjang tetap gratis.
- */
 export function KeyEditModal({
   target,
   open,
@@ -60,14 +50,6 @@ export function KeyEditModal({
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-
-  // Preset & saldo credit dimuat saat modal dibuka (reseller butuh keduanya untuk
-  // menghitung biaya; owner tetap bisa pakai mode preset).
-  //
-  // Catatan: `/api/auth/session` sengaja TIDAK memakai envelope `{ ok, data }`
-  // (dipakai Topbar apa adanya), jadi dibaca dengan fetch biasa — bukan `apiGet`.
-  // Keduanya dijalankan terpisah supaya gagal memuat saldo tidak mengosongkan
-  // daftar preset.
   const loadOptions = useCallback(async () => {
     const [presetsResult, sessionResult] = await Promise.allSettled([
       apiGet<{ presets: DurationPresetRow[] }>("/api/durations"),
@@ -93,7 +75,6 @@ export function KeyEditModal({
     );
   }, []);
 
-  // Reset form setiap kali target berubah.
   useEffect(() => {
     if (!target) return;
     setMode(isOwner ? "extend" : "preset");
@@ -118,7 +99,6 @@ export function KeyEditModal({
     Number.isFinite(maxValue) && maxValue > target.max_device;
   const maxDeviceForCost = Number.isFinite(maxValue) ? Math.max(maxValue, 1) : target.max_device;
 
-  // Perpanjang pakai preset (termasuk saat menambah device) = biaya harga preset × max device.
   const chargeable = !isOwner && mode === "preset" && selectedPreset !== null;
   const cost = chargeable ? extendCreditCost(selectedPreset?.credit_cost ?? 0, maxDeviceForCost) : 0;
   const creditEnough = credit === null || cost <= credit;

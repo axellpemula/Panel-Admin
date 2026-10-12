@@ -12,17 +12,6 @@ import { useToast } from "@/components/ui/Toast";
 import { ApiClientError, apiDelete, apiGet, apiPost } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/utils/format";
 
-/**
- * Kartu "Telegram" (Pengaturan):
- * - **Semua user**: menautkan akun panel ke chat Telegram (kode sekali pakai
- *   `/start <KODE>`) — dipakai untuk menerima notifikasi pribadi + perintah bot,
- * - **Owner**: menghubungkan bot (token dari @BotFather), memasang webhook, dan
- *   mengirim pesan uji.
- *
- * Token bot disimpan sebagai dokumen rahasia di `app_settings` dan TIDAK PERNAH
- * dikirim ke browser — panel hanya menerima statusnya.
- */
-
 interface TelegramStatus {
   connected: boolean;
   bot_username: string | null;
@@ -217,7 +206,7 @@ export function TelegramCard({ isOwner }: { isOwner: boolean }) {
         {isOwner ? (
           <div className="space-y-3 rounded-md border border-border bg-surface/60 px-3 py-3">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-body font-medium">Bot panel (Owner)</span>
+              <span className="text-body font-medium">Bot panel</span>
               <Button
                 size="sm"
                 variant="ghost"
@@ -225,18 +214,16 @@ export function TelegramCard({ isOwner }: { isOwner: boolean }) {
                 icon={<RefreshCw size={14} strokeWidth={1.5} />}
                 aria-label="Muat ulang status bot"
               >
-                Status
               </Button>
             </div>
 
             <Field
               label="Bot token"
-              hint="Dari @BotFather (/newbot). Disimpan sebagai rahasia — tidak pernah dikirim ke browser."
             >
               <Input
                 type="password"
                 value={tokenInput}
-                placeholder={status?.connected ? "••• (tersimpan)" : "123456789:ABC-DEF…"}
+                placeholder={status?.connected ? "•••••••••••" : "Masukan Bot token…"}
                 onChange={(event) => setTokenInput(event.target.value)}
                 autoComplete="off"
               />
@@ -244,7 +231,7 @@ export function TelegramCard({ isOwner }: { isOwner: boolean }) {
 
             <Field
               label="URL publik panel"
-              hint="Opsional. Dipakai untuk webhook — kosongkan untuk memakai URL request ini."
+              hint="Opsional. Dipakai untuk webhook — kosongkan untuk memakai URL request."
             >
               <Input
                 value={publicUrl}
@@ -266,7 +253,7 @@ export function TelegramCard({ isOwner }: { isOwner: boolean }) {
                 }
                 disabled={tokenInput.trim().length < 10}
               >
-                Simpan & pasang webhook
+                Simpan
               </Button>
               <Button
                 size="sm"
@@ -276,7 +263,7 @@ export function TelegramCard({ isOwner }: { isOwner: boolean }) {
                   void callTelegram("set_webhook", { public_url: publicUrl.trim() || undefined })
                 }
               >
-                Pasang ulang webhook
+                Pasang ulang
               </Button>
               <Button
                 size="sm"
@@ -284,7 +271,7 @@ export function TelegramCard({ isOwner }: { isOwner: boolean }) {
                 disabled={!status?.connected}
                 onClick={() => void callTelegram("remove_webhook")}
               >
-                Hapus webhook
+                Hapus
               </Button>
               <Button
                 size="sm"
@@ -332,16 +319,10 @@ export function TelegramCard({ isOwner }: { isOwner: boolean }) {
                 }
               >
                 {status?.notifications_enabled
-                  ? "Matikan kirim notifikasi ke Telegram"
-                  : "Nyalakan kirim notifikasi ke Telegram"}
+                  ? "Matikan notifikasi"
+                  : "Nyalakan notifikasi"}
               </Button>
             </div>
-
-            <p className="text-label text-muted">
-              Notifikasi yang dikirim: auto-ban key, login gagal berulang, brute-force validasi,
-              saldo reseller tipis, dan ringkasan harian. Jenis & ambangnya diatur di kartu
-              “Batas &amp; Sistem”. Perintah bot: /help.
-            </p>
           </div>
         ) : null}
       </div>

@@ -12,7 +12,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/** Zona waktu WIB dipakai untuk penamaan hari & label laporan. */
 const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
 
 function jakartaDateKey(date: Date): string {
@@ -26,16 +25,6 @@ function formatWib(date: Date): string {
   return `${day} ${time} WIB`;
 }
 
-/**
- * GET /api/cron/digest — ringkasan harian ke Telegram/webhook (#2).
- *
- * Dijadwalkan sekali sehari (lihat vercel.json). Isinya aktivitas 24 jam terakhir:
- * key baru, key expired, auto-ban, validasi sukses/gagal, topup & penyesuaian credit,
- * plus jumlah reseller yang saldonya tipis.
- *
- * Anti-duplikat: `dedupeKey = digest:<tanggal WIB>`, jadi walau cron dipanggil dua
- * kali pada hari yang sama, Owner hanya menerima satu ringkasan.
- */
 export async function GET(request: NextRequest) {
   const expected = cronSecret();
   if (!expected) {

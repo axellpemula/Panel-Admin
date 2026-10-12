@@ -6,11 +6,6 @@ import { jsonError, jsonOk } from "@/lib/utils/http";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/**
- * GET /api/v1/tools
- * Tool + version aktif yang boleh dipakai saat generate. Dipakai client untuk
- * mengisi `tool_type_id` & `tool_version_id` tanpa membuka panel.
- */
 export async function GET(request: NextRequest) {
   return withApiKey(request, async (ctx) => {
     const { data: tools, error } = await ctx.admin

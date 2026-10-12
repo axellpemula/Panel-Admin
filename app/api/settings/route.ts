@@ -11,30 +11,11 @@ import {
 } from "@/lib/api/settings";
 import { errorMessage, jsonError, jsonOk, readJsonBody } from "@/lib/utils/http";
 
-/** Batas ukuran body PUT — cukup untuk semua field pengaturan. */
 const SETTINGS_BODY_MAX = 16 * 1024;
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/**
- * GET  /api/settings — (Owner) konfigurasi runtime + nilai default + rentang aman.
- * PUT  /api/settings — (Owner) simpan perubahan (patch sebagian).
- *
- * Body PUT berupa patch sebagian, misal:
- * ```json
- * {
- *   "validate": { "perIpPerMinute": 45, "tokenTtlSeconds": 1800 },
- *   "hwid": { "resetLimit": 5 },
- *   "notify": { "lowCreditThreshold": 20, "events": { "digest": false } },
- *   "api": { "enabled": true, "rateLimitPerMinute": 120 }
- * }
- * ```
- *
- * Field yang tidak dikirim dibiarkan seperti semula, dan semua nilai dijepit ke
- * rentang aman (`SETTINGS_BOUNDS`) — jadi nilai aneh tidak bisa membuat panel 500.
- * Bot Telegram diatur terpisah di `/api/settings/telegram`.
- */
 export async function GET(request: NextRequest) {
   return withOwner(request, async (ctx) => {
     const runtimeConfig = await loadRuntime(ctx.admin, { bypassCache: true });
@@ -42,8 +23,6 @@ export async function GET(request: NextRequest) {
     return jsonOk({
       runtime: runtimeConfig,
       public: publicSettings(runtimeConfig),
-      // Nilai default & rentang aman dipakai form Pengaturan untuk menampilkan
-      // tombol "kembalikan ke default" dan batas input.
       defaults: defaultRuntime(),
       bounds: SETTINGS_BOUNDS,
     });
@@ -91,7 +70,6 @@ const SECTIONS: Array<{ key: string; fields: string[]; booleans: string[] }> = [
   },
 ];
 
-/** Ubah body request jadi patch `RuntimeSettings` (hanya field yang dikirim). */
 function buildRuntimePatch(body: Record<string, unknown>): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
 
@@ -128,7 +106,6 @@ function buildRuntimePatch(body: Record<string, unknown>): Record<string, unknow
   return patch;
 }
 
-/** Bandingkan hasil sebelum/sesudah → daftar field yang benar-benar berubah. */
 function diffRuntime(
   before: Record<string, unknown>,
   after: Record<string, unknown>,

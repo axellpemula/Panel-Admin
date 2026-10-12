@@ -11,7 +11,6 @@ interface RouteParams {
   params: { id: string; vid: string };
 }
 
-/** PUT /api/tools/[id]/versions/[vid] — ubah nama / status aktif version. */
 export async function PUT(request: NextRequest, route: RouteParams) {
   return withOwner(request, async (ctx) => {
     const { id, vid } = route.params;
@@ -78,7 +77,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
   });
 }
 
-/** DELETE /api/tools/[id]/versions/[vid] — hapus version (ditolak kalau masih ada key). */
 export async function DELETE(request: NextRequest, route: RouteParams) {
   return withOwner(request, async (ctx) => {
     const { id, vid } = route.params;

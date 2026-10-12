@@ -10,9 +10,7 @@ import { errorMessage, jsonError, jsonOk } from "@/lib/utils/http";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/** Masa berlaku kode tautan (menit). */
 const CODE_TTL_MINUTES = 10;
-/** Huruf tanpa karakter ambigu (0/O, 1/I/L) supaya mudah diketik ulang. */
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
 function generateCode(length = 6): string {
@@ -23,14 +21,6 @@ function generateCode(length = 6): string {
   return code;
 }
 
-/**
- * Tautkan akun panel dengan chat Telegram (per akun, untuk notifikasi pribadi
- * dan perintah bot).
- *
- * GET    — status tautan + username bot (untuk menyusun deep link).
- * POST   — buat kode sekali pakai; kirim `/start <KODE>` ke bot dari chat kamu.
- * DELETE — lepas tautan chat.
- */
 export async function GET(request: NextRequest) {
   return withAuth(request, async (ctx) => {
     try {
@@ -80,7 +70,6 @@ export async function POST(request: NextRequest) {
       });
       if (error) throw new Error(error.message);
 
-      // Bersihkan kode kedaluwarsa milik user ini (tabel kecil, aman dilakukan).
       await ctx.admin
         .from("telegram_link_codes")
         .delete()

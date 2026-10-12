@@ -39,10 +39,6 @@ interface DevicesResponse {
   cooldown: CooldownInfo;
 }
 
-/**
- * Modal detail key + manajemen HWID.
- * Setelah reset, daftar device langsung dimuat ulang (real-time update).
- */
 export function HwidModal({
   keyId,
   open,
@@ -88,9 +84,6 @@ export function HwidModal({
     if (open && keyId) void load();
   }, [open, keyId, load]);
 
-  // Hitung mundur retry_after_seconds secara live (detik per detik) supaya user
-  // tidak perlu refresh untuk melihat waktu cooldown berkurang. Berhenti sendiri
-  // saat cooldown habis → tombol reset otomatis aktif kembali & data di-refresh.
   useEffect(() => {
     if (!cooldown || cooldown.retry_after_seconds === null) return;
     if (cooldown.retry_after_seconds <= 0) {
@@ -103,7 +96,6 @@ export function HwidModal({
         const next = prev.retry_after_seconds - 1;
         if (next <= 0) {
           window.clearInterval(id);
-          // Cooldown selesai — reload untuk sinkronkan kuota dari server.
           void load();
           return { ...prev, retry_after_seconds: 0, remaining: 1 };
         }
@@ -111,7 +103,6 @@ export function HwidModal({
       });
     }, 1000);
     return () => window.clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cooldown?.retry_after_seconds]);
 
   const resetDevice = async () => {
@@ -127,8 +118,6 @@ export function HwidModal({
       await load();
       onChanged?.();
     } catch (error) {
-      // Kalau kuota habis, server mengembalikan detail cooldown terbaru —
-      // update state supaya pesan & tombol langsung akurat.
       if (error instanceof ApiClientError && error.code === "hwid_reset_cooldown") {
         const quota = error.details as CooldownInfo | undefined;
         if (quota) setCooldown(quota);
@@ -162,8 +151,6 @@ export function HwidModal({
     }
   };
 
-  // Kalau kuota cooldown sudah habis, tombol reset di-disable (untuk reseller).
-  // Owner (cooldown.remaining === -1) tetap bisa reset kapan pun.
   const resetDisabled = Boolean(
     cooldown && cooldown.remaining !== -1 && cooldown.remaining <= 0,
   );
@@ -383,7 +370,6 @@ function Info({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** Format waktu cooldown (detik) ke string Indonesia yang ramah. */
 function formatWait(seconds: number | null): string | null {
   if (seconds === null || seconds < 0) return null;
   if (seconds < 60) return `${seconds} d`;
@@ -391,10 +377,8 @@ function formatWait(seconds: number | null): string | null {
   return `${Math.ceil(seconds / 3600)} j`;
 }
 
-/** Banner cooldown di atas HWID list. */
 function CooldownBanner({ cooldown }: { cooldown: CooldownInfo | null }) {
   if (!cooldown) return null;
-  // remaining === -1 → Owner (tanpa batas).
   if (cooldown.remaining === -1) return null;
 
   const exhausted = cooldown.remaining <= 0;

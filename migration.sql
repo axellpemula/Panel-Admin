@@ -1,19 +1,4 @@
 -- ============================================================================
--- XLOOP PANEL — migration.sql
--- Jalankan seluruh file ini di Supabase → SQL Editor → New query → Run.
--- Aman dijalankan ulang (idempotent): semua object dibuat dengan IF NOT EXISTS,
--- policy/fungsi di-drop & dibuat ulang.
---
--- Isi file ini:
---   1. Ekstensi & tabel
---   2. Index
---   3. Fungsi (register_device, spend_credit, add_credit, update_expired_keys, dst)
---   4. Trigger updated_at
---   5. Row Level Security + policies
---   6. GRANT untuk service_role (dipakai API routes)
--- ============================================================================
-
--- ============================================================================
 -- 1. EKSTENSI & TABEL
 -- ============================================================================
 
@@ -227,16 +212,7 @@ CREATE INDEX IF NOT EXISTS idx_validation_key_time ON validation_attempts (key_v
 -- Tambahan untuk fitur auto-ban (5 HWID berbeda dalam 1 jam):
 CREATE INDEX IF NOT EXISTS idx_validation_reason_time
   ON validation_attempts (key_value, reason, created_at DESC);
-
--- ---------------------------------------------------------------------------
--- Audit Logs (jejak aksi Owner/Reseller/sistem: ban, unban, hapus key,
--- reset HWID, auto-ban)
---
--- Desain: append-only, semua identitas di-denormalisasi (username) supaya jejak
--- tetap terbaca walau akun pelaku/pemilik atau key-nya sudah dihapus
--- (ON DELETE SET NULL pada key_id/actor_id/key_owner_id/banned_by).
--- Diisi/di matures lewat service role (API route) — seperti credit_logs.
--- ---------------------------------------------------------------------------
+-
 CREATE TABLE IF NOT EXISTS audit_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -265,13 +241,6 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_key_value ON audit_logs (key_value);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_key_action_time
   ON audit_logs (key_id, action, created_at DESC);
 
--- ---------------------------------------------------------------------------
--- Login Logs (riwayat login per akun — tampil di menu Pengaturan)
---
--- Dicatat oleh /api/auth/login untuk percobaan SUKSES maupun GAGAL.
--- user_id NULL kalau email tidak dikenal; email tetap disimpan supaya Owner bisa
--- melihat percobaan ke akun yang tidak ada. Append-only, ditulis lewat service role.
--- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS login_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -286,16 +255,6 @@ CREATE TABLE IF NOT EXISTS login_logs (
 CREATE INDEX IF NOT EXISTS idx_login_logs_user_time ON login_logs (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_login_logs_created_at ON login_logs (created_at DESC);
 
--- ---------------------------------------------------------------------------
--- App Settings (konfigurasi runtime yang diatur Owner dari menu Pengaturan)
---
--- Satu baris per dokumen:
---   'runtime'  → override limit/analitik/API/notifikasi (JSON),
---   'telegram' → kredensial bot Telegram (JSON, RAHASIA — tidak pernah dikirim
---                kembali ke browser, hanya statusnya).
---
--- RLS aktif tanpa policy: hanya service_role (API route) yang bisa membaca/menulis.
--- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,
   value JSONB,
@@ -304,13 +263,6 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
 
--- ---------------------------------------------------------------------------
--- API key reseller (akses mesin ke /api/v1 — lihat docs/RESELLER_API.md)
---
--- Token asli HANYA ditampilkan sekali saat dibuat. Yang disimpan:
---   token_prefix → 12 karakter pertama (untuk ditampilkan di panel),
---   token_hash   → sha256(token) — cukup dibandingkan konstanta-waktu.
--- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS reseller_api_keys (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
@@ -336,11 +288,6 @@ DROP POLICY IF EXISTS "Reseller sees own api keys" ON reseller_api_keys;
 CREATE POLICY "Reseller sees own api keys" ON reseller_api_keys
   FOR SELECT USING (user_id = auth.uid());
 
--- ---------------------------------------------------------------------------
--- Log request /api/v1 — dipakai untuk rate limit per token (query, bukan
--- in-memory, supaya aman di serverless) + statistik pemakaian API.
--- Dibersihkan cron (retensi diatur di Pengaturan).
--- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS api_request_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   api_key_id UUID REFERENCES reseller_api_keys(id) ON DELETE CASCADE,
@@ -358,9 +305,6 @@ CREATE INDEX IF NOT EXISTS idx_api_request_logs_created_at
   ON api_request_logs (created_at DESC);
 ALTER TABLE api_request_logs ENABLE ROW LEVEL SECURITY;
 
--- ---------------------------------------------------------------------------
--- Telegram: tautan akun panel ⇄ chat Telegram (bot dua arah + notifikasi)
--- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS telegram_links (
   user_id UUID PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
   chat_id TEXT UNIQUE NOT NULL,
@@ -387,10 +331,6 @@ CREATE TABLE IF NOT EXISTS telegram_link_codes (
 CREATE INDEX IF NOT EXISTS idx_telegram_link_codes_user ON telegram_link_codes (user_id);
 ALTER TABLE telegram_link_codes ENABLE ROW LEVEL SECURITY;
 
--- ---------------------------------------------------------------------------
--- Notification logs (outbox) — jejak notifikasi keluar (Telegram/webhook) +
--- dasar anti-spam (dedupe_key: satu notifikasi per kejadian per window).
--- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS notification_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -407,11 +347,6 @@ CREATE INDEX IF NOT EXISTS idx_notification_logs_created_at
   ON notification_logs (created_at DESC);
 ALTER TABLE notification_logs ENABLE ROW LEVEL SECURITY;
 
--- ---------------------------------------------------------------------------
--- Activity logs — aktivitas akun & sistem yang BUKAN aksi pada key
--- (ganti password, putus sesi, API key dibuat/dicabut, pengaturan diubah,
--- Telegram ditautkan, dsb). Pelengkap audit_logs; sama-sama hanya untuk Owner.
--- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS activity_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -455,10 +390,6 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_key_action_time
 -- 3. FUNGSI
 -- ============================================================================
 
--- ---------------------------------------------------------------------------
--- Daftarkan device secara atomic (lock baris key supaya slot tidak bisa
--- direbut dua request paralel).
--- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION register_device(p_key_id UUID, p_hwid TEXT)
 RETURNS TABLE(result TEXT, current_devices INTEGER) AS $$
 DECLARE
@@ -488,9 +419,6 @@ $$ LANGUAGE plpgsql;
 REVOKE EXECUTE ON FUNCTION register_device(UUID, TEXT) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION register_device(UUID, TEXT) TO service_role;
 
--- ---------------------------------------------------------------------------
--- Cleanup log validasi lama
--- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION cleanup_validation_attempts()
 RETURNS void AS $$
 BEGIN
@@ -500,17 +428,11 @@ $$ LANGUAGE plpgsql;
 REVOKE EXECUTE ON FUNCTION cleanup_validation_attempts() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION cleanup_validation_attempts() TO service_role;
 
--- ---------------------------------------------------------------------------
--- Helper: cek owner tanpa rekursi RLS di tabel profiles
--- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION is_owner()
 RETURNS BOOLEAN AS $$
   SELECT EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'owner');
 $$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public;
 
--- ---------------------------------------------------------------------------
--- Function: auto update expired keys
--- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION update_expired_keys()
 RETURNS void AS $$
 BEGIN
@@ -524,10 +446,6 @@ $$ LANGUAGE plpgsql;
 REVOKE EXECUTE ON FUNCTION update_expired_keys() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION update_expired_keys() TO service_role;
 
--- ---------------------------------------------------------------------------
--- Potong credit secara atomic (dipakai saat Reseller generate key).
--- Return satu baris: success + saldo terbaru.
--- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION spend_credit(p_user_id UUID, p_amount INTEGER)
 RETURNS TABLE(success BOOLEAN, balance INTEGER, message TEXT) AS $$
 DECLARE
@@ -556,9 +474,6 @@ $$ LANGUAGE plpgsql;
 REVOKE EXECUTE ON FUNCTION spend_credit(UUID, INTEGER) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION spend_credit(UUID, INTEGER) TO service_role;
 
--- ---------------------------------------------------------------------------
--- Tambah credit secara atomic (topup oleh Owner).
--- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION add_credit(p_user_id UUID, p_amount INTEGER)
 RETURNS TABLE(success BOOLEAN, balance INTEGER) AS $$
 DECLARE
@@ -586,9 +501,6 @@ $$ LANGUAGE plpgsql;
 REVOKE EXECUTE ON FUNCTION add_credit(UUID, INTEGER) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION add_credit(UUID, INTEGER) TO service_role;
 
--- ---------------------------------------------------------------------------
--- Jumlah device terpakai untuk sekumpulan key (1 query untuk 1 halaman tabel).
--- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION key_device_counts(p_key_ids UUID[])
 RETURNS TABLE(key_id UUID, device_count INTEGER) AS $$
   SELECT dl.key_id, COUNT(*)::INTEGER
@@ -599,17 +511,6 @@ $$ LANGUAGE sql STABLE;
 REVOKE EXECUTE ON FUNCTION key_device_counts(UUID[]) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION key_device_counts(UUID[]) TO service_role;
 
--- ---------------------------------------------------------------------------
--- Auto-ban key kalau terdeteksi terlalu banyak HWID berbeda dalam window waktu
--- (device_limit_exceeded dari register_device). Dipanggil dari dalam transaksi
--- register_device supaya memegang advisory lock per key — burst paralel dari
--- banyak HWID berbeda tidak bisa melewati pemeriksaan (race condition).
---
--- Mengembalikan:
---   'banned'   → key baru saja di-auto-ban oleh panggilan ini,
---   'already'  → key sudah dibanned (panggilan sebelumnya yang ke-lock duluan),
---   'ok'       → belum mencapai ambang ban.
--- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION check_auto_ban(p_key_id UUID, p_hwid TEXT, p_ip TEXT, p_distinct_limit INTEGER, p_window_minutes INTEGER, p_note TEXT)
 RETURNS TEXT AS $$
 DECLARE
@@ -678,9 +579,6 @@ $$ LANGUAGE plpgsql VOLATILE;
 REVOKE EXECUTE ON FUNCTION check_auto_ban(UUID, TEXT, TEXT, INTEGER, INTEGER, TEXT) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION check_auto_ban(UUID, TEXT, TEXT, INTEGER, INTEGER, TEXT) TO service_role;
 
--- ---------------------------------------------------------------------------
--- Jumlah key per version (dipakai halaman Tool Management).
--- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION key_counts_by_version()
 RETURNS TABLE(
   tool_type_id UUID,
@@ -698,9 +596,6 @@ $$ LANGUAGE sql STABLE;
 REVOKE EXECUTE ON FUNCTION key_counts_by_version() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION key_counts_by_version() TO service_role;
 
--- ---------------------------------------------------------------------------
--- Ringkasan reseller + jumlah key (dipakai halaman Reseller & Top Reseller).
--- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION reseller_summary()
 RETURNS TABLE(
   user_id UUID,
@@ -808,11 +703,6 @@ CREATE POLICY "Owner manages duration presets" ON duration_presets FOR ALL USING
 DROP POLICY IF EXISTS "Owner sees all keys" ON keys;
 CREATE POLICY "Owner sees all keys" ON keys FOR ALL USING (is_owner());
 
--- Reseller hanya bisa SELECT key milik sendiri.
--- Semua INSERT/UPDATE/DELETE key oleh Reseller HARUS lewat API route (service role)
--- setelah cek role, kepemilikan, dan credit. Reseller tidak boleh menulis langsung
--- ke tabel keys lewat Supabase client karena bisa mengubah expired_at/status atau
--- membuat key tanpa bayar credit.
 DROP POLICY IF EXISTS "Reseller sees own keys" ON keys;
 CREATE POLICY "Reseller sees own keys" ON keys FOR SELECT USING (created_by = auth.uid());
 

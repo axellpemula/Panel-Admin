@@ -6,12 +6,6 @@ import type { ProfileRow } from "@/lib/types/database";
 
 export const dynamic = "force-dynamic";
 
-/**
- * GET /api/auth/session
- * Dipakai Topbar untuk menampilkan nama user + role.
- * Mengembalikan { session: null } (bukan 401) kalau belum login supaya
- * halaman bisa menampilkan status "Sesi berakhir" tanpa error di console.
- */
 export async function GET() {
   const mode = dbMode();
 

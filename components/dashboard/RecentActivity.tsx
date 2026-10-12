@@ -3,9 +3,6 @@ import type { ActivityItem } from "@/lib/api/stats";
 import { CREDIT_ACTION_LABEL, formatDateTime, formatNumber } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
 
-/**
- * 10 aktivitas terakhir (topup, generate, perpanjang, pengembalian) dari credit_logs.
- */
 export function RecentActivity({
   items,
   showUser = false,
@@ -24,7 +21,6 @@ export function RecentActivity({
       ) : (
         <ul className="divide-y divide-border">
           {items.map((item) => {
-            // Label mengikuti aksi sebenarnya; tanda +/ mengikuti arah saldo.
             const positive = item.amount > 0;
             return (
               <li key={item.id} className="row-hover flex items-start gap-3 px-4 py-3">

@@ -11,7 +11,6 @@ interface RouteParams {
   params: { id: string };
 }
 
-/** PUT /api/durations/[id] — ubah semua field preset durasi (Owner only). */
 export async function PUT(request: NextRequest, route: RouteParams) {
   return withOwner(request, async (ctx) => {
     const { id } = route.params;
@@ -66,7 +65,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
   });
 }
 
-/** DELETE /api/durations/[id] — hapus preset durasi (Owner only). */
 export async function DELETE(request: NextRequest, route: RouteParams) {
   return withOwner(request, async (ctx) => {
     const { id } = route.params;

@@ -9,10 +9,6 @@ import { asEmail, asInt, asOptionalString, asPassword, asString } from "@/lib/ut
 
 export const dynamic = "force-dynamic";
 
-/**
- * GET /api/resellers (Owner only)
- * Daftar reseller + sisa credit + total key yang dibuat.
- */
 export async function GET(request: NextRequest) {
   return withOwner(request, async (ctx) => {
     try {
@@ -25,11 +21,6 @@ export async function GET(request: NextRequest) {
   });
 }
 
-/**
- * POST /api/resellers (Owner only)
- * Buat akun reseller: Supabase Auth + baris `profiles`.
- * Kalau `credit` > 0, langsung dicatat sebagai credit_logs bertipe topup.
- */
 export async function POST(request: NextRequest) {
   return withOwner(request, async (ctx) => {
     let body: {
@@ -60,7 +51,6 @@ export async function POST(request: NextRequest) {
     if (!password) return jsonError("Password minimal 8 karakter", "validation_error", 400);
     if (credit === null) return jsonError("Credit awal tidak valid", "validation_error", 400);
 
-    // Cek duplikat username di profiles.
     const { data: existingUsername } = await ctx.admin
       .from("profiles")
       .select("id")
@@ -69,7 +59,6 @@ export async function POST(request: NextRequest) {
 
     if (existingUsername) return jsonError("Username sudah dipakai", "conflict", 409);
 
-    // Buat user Supabase Auth.
     const { data: created, error: authError } = await ctx.admin.auth.admin.createUser({
       email,
       password,
@@ -89,7 +78,6 @@ export async function POST(request: NextRequest) {
 
     const newUserId = created.user.id;
 
-    // Simpan profil.
     const { data: profile, error: profileError } = await ctx.admin
       .from("profiles")
       .insert({
@@ -104,7 +92,6 @@ export async function POST(request: NextRequest) {
       .single<ProfileRow>();
 
     if (profileError || !profile) {
-      // Rollback: hapus user auth supaya tidak jadi akun tanpa profil.
       await ctx.admin.auth.admin.deleteUser(newUserId);
       const message = profileError?.code === "23505" ? "Username sudah dipakai" : "Gagal menyimpan profil reseller";
       return jsonError(message, profileError?.code === "23505" ? "conflict" : "server_error", 409);
@@ -116,8 +103,6 @@ export async function POST(request: NextRequest) {
       try {
         balance = await addCredit(ctx.admin, newUserId, credit);
       } catch (error) {
-        // Rollback: hapus profil + akun auth supaya tidak tertinggal akun
-        // tanpa saldo yang dijanjikan (owner akan lihat errornya).
         await ctx.admin.from("profiles").delete().eq("id", newUserId);
         await ctx.admin.auth.admin.deleteUser(newUserId);
         return jsonError(errorMessage(error), "server_error", 500);

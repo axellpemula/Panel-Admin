@@ -1,10 +1,6 @@
 import { formatNumber } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
 
-/**
- * Kartu statistik: label kecil (muted) + angka besar.
- * Angka memakai tabular-nums supaya tidak "goyang" saat nilainya berubah.
- */
 export function StatCard({
   label,
   value,

@@ -10,24 +10,10 @@ export const runtime = "nodejs";
 
 const BODY_MAX = 8 * 1024;
 
-/**
- * GET  /api/v1/keys — daftar key milik pemilik API key (filter + pagination).
- * POST /api/v1/keys — generate key baru (memakai lib/api/generate.ts yang sama
- *                     dengan panel, jadi harga & validasinya identik).
- *
- * Query GET : status, q, tool_type_id, version_id, page, per_page, sort, order
- * Body POST : { tool_type_id, tool_version_id, duration_preset_id, quantity?,
- *               max_device?, note?, custom_days? }
- *
- * Catatan: reseller hanya boleh memakai preset durasi (`duration_preset_id`).
- * Owner boleh memakai `custom_days` (termasuk 0 = lifetime).
- */
 export async function GET(request: NextRequest) {
   return withApiKey(request, async (ctx) => {
     const params = request.nextUrl.searchParams;
 
-    // Filter yang tidak dikenal jangan diam-diam diabaikan: bot/skrip harus tahu
-    // bahwa nilainya salah (kalau tidak, `status=expird` malah mengembalikan semua key).
     const status = (params.get("status") ?? "").trim().toLowerCase();
     if (status && !["active", "expired", "banned"].includes(status)) {
       return jsonError(
@@ -135,7 +121,6 @@ export async function POST(request: NextRequest) {
   });
 }
 
-/** Kode error GenerateError → HTTP status yang masuk akal untuk API publik. */
 function statusForCode(code: GenerateError["code"]): number {
   switch (code) {
     case "not_found":

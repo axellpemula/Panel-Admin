@@ -20,10 +20,6 @@ interface GenerateBody {
   note?: unknown;
 }
 
-/**
- * POST /api/keys/generate
- * Owner: preset atau custom duration. Reseller: preset saja + potong credit.
- */
 export async function POST(request: NextRequest) {
   return withAuth(request, async (ctx) => {
     let body: GenerateBody;
@@ -33,7 +29,6 @@ export async function POST(request: NextRequest) {
       return jsonError("Format request tidak valid", "validation_error", 400);
     }
 
-    // Batas quantity & max device mengikuti konfigurasi runtime (Pengaturan).
     const runtime = await loadRuntime(ctx.admin);
 
     const toolTypeId = asString(body.tool_type_id, 64);
@@ -62,7 +57,6 @@ export async function POST(request: NextRequest) {
       return jsonError(`Quantity harus antara 1 dan ${quantityMax}`, "validation_error", 400);
     }
 
-    // Reseller tidak boleh mengirim duration_mode custom.
     const requestedMode = body.duration_mode === "custom" ? "custom" : "preset";
     const durationMode = ctx.isOwner ? requestedMode : "preset";
 

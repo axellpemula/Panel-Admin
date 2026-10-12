@@ -15,14 +15,6 @@ interface LoginBody {
   password?: unknown;
 }
 
-/**
- * POST /api/auth/login
- * Login lewat Supabase Auth, lalu cek `profiles.is_active`.
- * Akun nonaktif ditolak dengan pesan "Akun kamu dinonaktifkan".
- *
- * Rate limit: maksimal 10 percobaan GAGAL per IP per 10 menit (anti brute-force,
- * lihat lib/api/login-guard.ts).
- */
 export async function POST(request: NextRequest) {
   const ip = clientIp(request);
   const userAgent = request.headers.get("user-agent");
@@ -56,7 +48,6 @@ export async function POST(request: NextRequest) {
 
   const admin = createAdminClient();
 
-  /** Catat percobaan gagal ke login_logs (user_id dicari dari email bila ada). */
   const logFailure = async (reason: LoginFailureReason, userId: string | null = null) => {
     let resolvedUserId = userId;
     if (!resolvedUserId) {
@@ -68,14 +59,11 @@ export async function POST(request: NextRequest) {
       resolvedUserId = byEmail?.id ?? null;
     }
     await recordLoginLog(admin, { userId: resolvedUserId, email, success: false, reason, ip, userAgent });
-    // Login gagal berulang pada satu akun → beri tahu Owner (anti credential stuffing).
     notifyLoginFailure(admin, { userId: resolvedUserId, email, ip, userAgent, reason });
   };
 
   try {
     const supabase = createClient();
-    // `ip`/`user_agent` hanya dipakai adapter SQLite (kartu "Sesi aktif" di
-    // Pengaturan); Supabase mengabaikannya karena field tambahan.
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -96,7 +84,6 @@ export async function POST(request: NextRequest) {
       return jsonError(error?.message ?? "Email atau password salah", "unauthorized", 401);
     }
 
-    // Cek status akun lewat service role (RLS tidak menghalangi).
     const { data: profile, error: profileError } = await admin
       .from("profiles")
       .select("*")
@@ -121,7 +108,6 @@ export async function POST(request: NextRequest) {
       return jsonError("Akun kamu dinonaktifkan", "forbidden", 403);
     }
 
-    // Login sukses → riwayat gagal IP ini direset.
     clearLoginFailures(ip);
     await recordLoginLog(admin, { userId: profile.id, email: profile.email, success: true, ip, userAgent });
 

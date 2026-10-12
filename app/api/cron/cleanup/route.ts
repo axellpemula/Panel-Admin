@@ -9,18 +9,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/**
- * GET /api/cron/cleanup — dipanggil Vercel Cron (lihat vercel.json).
- * Dilindungi header `Authorization: Bearer CRON_SECRET`.
- *
- * Tugas:
- * 1. Hapus validation_attempts, api_request_logs, dan notification_logs yang
- *    sudah lebih tua dari masa retensi (bisa diatur Owner di Pengaturan).
- * 2. Hapus kode tautan Telegram (telegram_link_codes) yang sudah kedaluwarsa
- *    atau sudah dipakai — kode hanya berlaku 10 menit.
- * 3. Jalankan update_expired_keys() supaya status key selalu akurat.
- * 4. (Mode SQLite) Bersihkan auth_sessions yang sudah kedaluwarsa.
- */
 export async function GET(request: NextRequest) {
   const expected = cronSecret();
 
@@ -33,9 +21,6 @@ export async function GET(request: NextRequest) {
 
   const header = request.headers.get("authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
-
-  // Bandingkan dengan timingSafeEqual supaya waktu respons tidak bocorkan
-  // seberapa cocok secret yang ditebak.
   const expectedBuf = Buffer.from(expected);
   const tokenBuf = Buffer.from(token);
   const authorized =
@@ -47,8 +32,6 @@ export async function GET(request: NextRequest) {
 
   const admin = createAdminClient();
   const startedAt = Date.now();
-
-  // Masa retensi log dibaca dari Pengaturan (default: lib/constants.ts).
   const runtime = await loadRuntime(admin);
   const cutoffFor = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
   const cutoff = cutoffFor(runtime.retention.attemptsDays);
@@ -66,7 +49,6 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Log request API & riwayat notifikasi ikut dibersihkan (bucket waktu sendiri).
   const apiLogCutoff = cutoffFor(runtime.retention.apiLogsDays);
   const deletedApiLogs = await admin
     .from("api_request_logs")
@@ -85,8 +67,6 @@ export async function GET(request: NextRequest) {
     console.warn("[cron] hapus notification_logs gagal:", deletedNotifications.error.message);
   }
 
-  // Kode tautan Telegram: sekali pakai + berlaku 10 menit, jadi kode yang sudah
-  // dipakai ATAU kedaluwarsa >1 hari aman dibuang.
   const linkCodeCutoff = new Date(Date.now() - 86_400_000).toISOString();
   const deletedUsedCodes = await admin
     .from("telegram_link_codes")
@@ -115,8 +95,6 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Mode SQLite: bersihkan sesi kedaluwarsa (tidak ada di Supabase).
-  // Cast ke `any` karena fungsi ini hanya ada di adapter SQLite, bukan di Supabase.
   let deletedSessions = 0;
   if (dbMode() === "sqlite") {
     try {

@@ -6,11 +6,6 @@ import { errorMessage, jsonError, jsonOk } from "@/lib/utils/http";
 
 export const dynamic = "force-dynamic";
 
-/**
- * GET /api/auth/logins?user_id=&limit=
- * Riwayat login (sukses & gagal) akun sendiri. Owner boleh melihat akun lain
- * lewat `user_id` (dipakai halaman detail reseller).
- */
 export async function GET(request: NextRequest) {
   return withAuth(request, async (ctx) => {
     const params = request.nextUrl.searchParams;

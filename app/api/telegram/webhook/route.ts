@@ -11,20 +11,8 @@ import { readJsonBody } from "@/lib/utils/http";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/** Update Telegram kecil (< 2 KB) — batas ini murni pengaman. */
 const BODY_MAX = 16 * 1024;
 
-/**
- * POST /api/telegram/webhook — penerima update dari Telegram (bot #15).
- *
- * Keamanan:
- * - Wajib ada header `X-Telegram-Bot-Api-Secret-Token` yang cocok dengan secret
- *   yang kita pasang saat `setWebhook` (dibandingkan konstan-waktu).
- * - Kalau bot belum dikonfigurasi, request dijawab 200 tanpa efek (Telegram tidak
- *   akan retry berulang).
- * - Selalu membalas 200 cepat: Telegram mengirim ulang update kalau kita error,
- *   dan itu bisa memicu spam perintah.
- */
 export async function POST(request: NextRequest) {
   let admin;
   try {
@@ -52,7 +40,6 @@ export async function POST(request: NextRequest) {
 
   const parsed = await readJsonBody(request, BODY_MAX);
   if (!parsed.ok || !parsed.value || typeof parsed.value !== "object") {
-    // Body tidak valid tapi terautentikasi → 200 supaya Telegram berhenti retry.
     return NextResponse.json({ ok: true });
   }
 

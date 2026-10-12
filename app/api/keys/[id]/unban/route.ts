@@ -11,15 +11,6 @@ interface RouteParams {
   params: { id: string };
 }
 
-/**
- * PUT /api/keys/[id]/unban
- * Status kembali `active` kalau belum lewat expired, atau `expired` kalau sudah lewat.
- *
- * Pembatasan: unban untuk key yang kena **auto-ban** (`ban_reason = 'auto_hwid'`)
- * hanya bisa oleh Owner — reseller tidak bisa membuka sendiri ban otomatis sistem.
- *
- * Setiap unban dicatat ke `audit_logs` (siapa, kapan, alasan ban sebelumnya).
- */
 export async function PUT(request: NextRequest, route: RouteParams) {
   return withAuth(request, async (ctx) => {
     const { key, allowed, error } = await loadKeyWithAccess(ctx, route.params.id);
@@ -27,7 +18,7 @@ export async function PUT(request: NextRequest, route: RouteParams) {
 
     if (key.ban_reason === "auto_hwid" && !ctx.isOwner) {
       return jsonError(
-        "Key ini kena auto-ban (terlalu banyak HWID berbeda). Unban auto-ban hanya bisa oleh Owner — hubungi Owner.",
+        "Key ini kena auto-ban terlalu banyak HWID berbeda. Unban auto-ban hanya bisa oleh Owner — hubungi Owner.",
         "forbidden",
         403,
       );
@@ -44,7 +35,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
       .from("keys")
       .update({
         status: nextStatus,
-        // Metadata ban dikosongkan — tapi jejaknya tetap ada di audit_logs.
         ban_reason: null,
         ban_note: null,
         banned_by: null,
@@ -54,7 +44,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
 
     if (updateError) return jsonError(updateError.message, "server_error", 500);
 
-    // Jejak audit: siapa yang unban + alasan ban sebelumnya (penting saat sengketa).
     const keyOwnerUsername = await getProfileUsername(ctx.admin, key.created_by);
     await recordAuditLog(ctx.admin, {
       actorId: ctx.userId,

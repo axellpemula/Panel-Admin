@@ -11,9 +11,6 @@ interface RouteParams {
   params: { id: string };
 }
 
-/**
- * PUT /api/tools/[id] — ubah nama, slug, dan/atau status aktif tool type.
- */
 export async function PUT(request: NextRequest, route: RouteParams) {
   return withOwner(request, async (ctx) => {
     const { id } = route.params;
@@ -70,10 +67,6 @@ export async function PUT(request: NextRequest, route: RouteParams) {
   });
 }
 
-/**
- * DELETE /api/tools/[id] — hapus tool type.
- * Ditolak kalau masih ada key yang memakai tool ini (key akan jadi orphan).
- */
 export async function DELETE(request: NextRequest, route: RouteParams) {
   return withOwner(request, async (ctx) => {
     const { id } = route.params;
@@ -88,7 +81,7 @@ export async function DELETE(request: NextRequest, route: RouteParams) {
 
     if ((count ?? 0) > 0) {
       return jsonError(
-        `Tool ini masih punya ${count} key. Hapus key-nya dulu di Key List.`,
+        `Tool ini masih punya ${count} key. Hapus key-nya terlebih dulu.`,
         "conflict",
         409,
       );

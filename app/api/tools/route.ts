@@ -33,12 +33,6 @@ export interface ToolTypeItem {
   version_count: number;
 }
 
-/**
- * GET /api/tools
- * Owner: daftar lengkap tool type + version + jumlah key.
- * Reseller: hanya tool & version AKTIF (untuk form generate).
- * Payload rahasia TIDAK pernah dikirim — hanya flag `has_secret`.
- */
 export async function GET(request: NextRequest) {
   return withAuth(request, async (ctx) => {
     try {
@@ -126,10 +120,6 @@ export async function GET(request: NextRequest) {
   });
 }
 
-/**
- * POST /api/tools — tambah tool type (Owner only).
- * Slug auto-generate dari nama, tapi bisa diisi manual.
- */
 export async function POST(request: NextRequest) {
   return withOwner(request, async (ctx) => {
     let body: { name?: unknown; slug?: unknown; is_active?: unknown; secret_payload?: unknown };
@@ -140,7 +130,7 @@ export async function POST(request: NextRequest) {
     }
 
     const name = asString(body.name, 100);
-    if (!name) return jsonError("Nama tool wajib diisi (maks 100 karakter)", "validation_error", 400);
+    if (!name) return jsonError("Nama tool wajib diisi", "validation_error", 400);
 
     const slug = asSlug(body.slug) ?? asSlug(slugify(name));
     if (!slug) return jsonError("Slug tidak valid", "validation_error", 400);
@@ -166,7 +156,6 @@ export async function POST(request: NextRequest) {
 
     if (error) return jsonError(error.message, "server_error", 500);
 
-    // Payload rahasia opsional — hanya disimpan, tidak pernah dikembalikan.
     const secret = asOptionalString(body.secret_payload, LIMITS.secretPayloadMax);
     if (secret) {
       const { error: secretError } = await ctx.admin

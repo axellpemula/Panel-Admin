@@ -14,15 +14,6 @@ import { useToast } from "@/components/ui/Toast";
 import { apiGet, buildQuery } from "@/lib/api/client";
 import { formatDateTime, formatRelativeToNow } from "@/lib/utils/format";
 
-/**
- * Tabel "Aktivitas Akun & Sistem" — melengkapi Audit Log (yang khusus aksi pada
- * key). Isinya: ganti password, putus sesi, API key dibuat/dicabut, pengaturan
- * diubah, topup/penyesuaian credit, dan bot Telegram.
- *
- * Dipakai di halaman Audit Log (Owner, semua aktor) dan bisa dipakai ulang
- * untuk aktivitas pribadi.
- */
-
 export interface ActivityLogItem {
   id: string;
   created_at: string;
@@ -49,7 +40,6 @@ const ACTION_OPTIONS: { value: string; label: string }[] = [
   ...Object.entries(ACTIVITY_ACTION_LABEL).map(([value, label]) => ({ value, label })),
 ];
 
-/** Warna label aksi: keamanan → kuning, penghapusan → merah, sisanya muted. */
 function actionTone(action: string): string {
   if (action === "api_key_revoke" || action === "telegram_disconnect") return "text-banned";
   if (action === "security") return "text-expired";
@@ -59,7 +49,6 @@ function actionTone(action: string): string {
   return "text-muted";
 }
 
-/** Ubah detail JSON jadi satu baris kecil yang bisa dibaca. */
 function detailSummary(detail: Record<string, unknown> | null): string {
   if (!detail) return "";
   const parts: string[] = [];
@@ -209,7 +198,6 @@ export function ActivityLogTable({ actorFilter }: { actorFilter?: string }) {
             icon={<RefreshCw size={15} strokeWidth={1.5} />}
             aria-label="Muat ulang aktivitas"
           >
-            Muat ulang
           </Button>
           <Button
             size="sm"
