@@ -141,7 +141,7 @@ export function ApiKeysCard({
         <EmptyState message="Belum ada API key. Buat satu untuk integrasi otomatis (cek saldo, generate key, reset HWID)." />
       ) : (
         <div className="w-full overflow-x-auto">
-          <table className="w-full min-w-[760px] text-body">
+          <table className="w-full min-w-[820px] text-body">
             <thead className="sticky top-0 bg-surface">
               <tr className="border-b border-border text-left text-label text-muted">
                 <th scope="col" className="px-3 py-2 font-normal">

@@ -348,7 +348,7 @@ export function AuditView({
           <EmptyState message="Belum ada aktivitas tercatat di audit log" />
         ) : (
           <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-[960px] text-body">
+            <table className="w-full min-w-[1080px] text-body">
               <thead className="sticky top-0 bg-surface">
                 <tr className="border-b border-border text-left text-label text-muted">
                   <th scope="col" className="px-3 py-2 font-normal">

@@ -210,7 +210,7 @@ export function ResellerDetailView({ id }: { id: string }) {
             <EmptyState message="Reseller ini belum membuat key." />
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[520px] text-left text-body">
+              <table className="w-full min-w-[640px] text-left text-body">
                 <thead>
                   <tr className="border-b border-border text-label text-muted">
                     <th className="px-4 py-2 font-normal">Key</th>

@@ -243,7 +243,7 @@ export function HwidModal({
                 <EmptyState message="Belum ada device yang terdaftar" />
               ) : (
                 <div className="w-full overflow-x-auto">
-                  <table className="w-full min-w-[560px] text-body">
+                  <table className="w-full min-w-[640px] text-body">
                     <thead className="bg-surface">
                       <tr className="border-b border-border text-left text-label text-muted">
                         <th scope="col" className="px-3 py-2 font-normal">

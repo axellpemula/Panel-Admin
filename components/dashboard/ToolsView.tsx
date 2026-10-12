@@ -286,7 +286,7 @@ export function ToolsView() {
           />
         ) : (
           <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-[880px] text-body">
+            <table className="w-full min-w-[1020px] text-body">
               <thead className="sticky top-0 bg-surface">
                 <tr className="border-b border-border text-left text-label text-muted">
                   <th scope="col" className="px-3 py-2 font-normal">

@@ -331,7 +331,7 @@ export function ValidationAttemptsView() {
             <EmptyState message="Tidak ada IP terekam pada rentang ini" />
           ) : (
             <div className="w-full overflow-x-auto">
-              <table className="w-full min-w-[640px] text-body">
+              <table className="w-full min-w-[720px] text-body">
                 <thead className="bg-surface">
                   <tr className="border-b border-border text-left text-label text-muted">
                     <th scope="col" className="px-3 py-2 font-normal">
@@ -405,7 +405,7 @@ export function ValidationAttemptsView() {
             <EmptyState message="Belum ada key yang gagal pada rentang ini" />
           ) : (
             <div className="w-full overflow-x-auto">
-              <table className="w-full min-w-[640px] text-body">
+              <table className="w-full min-w-[720px] text-body">
                 <thead className="bg-surface">
                   <tr className="border-b border-border text-left text-label text-muted">
                     <th scope="col" className="px-3 py-2 font-normal">
@@ -488,7 +488,7 @@ export function ValidationAttemptsView() {
             <EmptyState message="Tidak ada HWID yang dipakai lebih dari satu key — aman." />
           ) : (
             <div className="w-full overflow-x-auto">
-              <table className="w-full min-w-[620px] text-body">
+              <table className="w-full min-w-[700px] text-body">
                 <thead className="bg-surface">
                   <tr className="border-b border-border text-left text-label text-muted">
                     <th scope="col" className="px-3 py-2 font-normal">
@@ -570,7 +570,7 @@ export function ValidationAttemptsView() {
             <EmptyState message="Tidak ada key yang dipakai dari beberapa IP — aman." />
           ) : (
             <div className="w-full overflow-x-auto">
-              <table className="w-full min-w-[620px] text-body">
+              <table className="w-full min-w-[700px] text-body">
                 <thead className="bg-surface">
                   <tr className="border-b border-border text-left text-label text-muted">
                     <th scope="col" className="px-3 py-2 font-normal">
@@ -730,7 +730,7 @@ export function ValidationAttemptsView() {
           <EmptyState message="Belum ada percobaan validasi pada rentang ini" />
         ) : (
           <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-[960px] text-body">
+            <table className="w-full min-w-[1024px] text-body">
               <thead className="sticky top-0 bg-surface">
                 <tr className="border-b border-border text-left text-label text-muted">
                   <th scope="col" className="px-3 py-2 font-normal">
