@@ -723,7 +723,11 @@ Yang diperbaiki karena audit ini:
    `htmlFor`, jadi klik teks label tidak memfokuskan kolom dan screen reader tidak membacakan nama
    kolom. `Field` sekarang memasang `id` otomatis bila isinya tepat satu kontrol (`Input`,
    `Textarea`, `Select`); pemakaian lain dibiarkan agar id tidak salah pasang.
-4. **Satu halaman = satu `<h1>`.** Judul di breadcrumb Topbar tidak lagi `<h1>` (sebelumnya setiap
+4. **Filter Activity Log tidak lagi menelan nilai salah.** `GET /api/activity?action=…` dengan aksi
+   tak dikenal sebelumnya menghapus filter (semua aktivitas terkirim); kini `400 validation_error` +
+   daftar aksi yang sah (UI hanya mengirim nilai dari daftar itu, jadi tidak ada perubahan perilaku
+   di panel).
+5. **Satu halaman = satu `<h1>`.** Judul di breadcrumb Topbar tidak lagi `<h1>` (sebelumnya setiap
    halaman punya dua `<h1>` kembar), konten halaman tetap memakai `<h1>`.
 
 Catatan operasional (bukan bug aplikasi): suite `verify:*` menjalankan `next dev`-nya sendiri dan

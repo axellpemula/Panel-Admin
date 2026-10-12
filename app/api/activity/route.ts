@@ -28,6 +28,17 @@ export async function GET(request: NextRequest) {
     const actor = params.get("actor");
     const format = params.get("format");
 
+    // Aksi yang tidak dikenal jangan diam-diam diabaikan (dulu filter hilang dan
+    // semua aktivitas ikut terkirim) — UI hanya mengirim nilai dari daftar ini.
+    if (action && !ACTIVITY_ACTIONS.includes(action as ActivityAction)) {
+      return jsonError(
+        "Parameter `action` tidak dikenal",
+        "validation_error",
+        400,
+        { allowed: ACTIVITY_ACTIONS },
+      );
+    }
+
     const pageRaw = Number.parseInt(params.get("page") ?? "1", 10);
     const page = Math.min(1_000_000, Math.max(1, Number.isFinite(pageRaw) ? pageRaw : 1));
     const perPageRaw = Number.parseInt(params.get("per_page") ?? "50", 10);
@@ -50,7 +61,7 @@ export async function GET(request: NextRequest) {
       const result = await listActivity(ctx.admin, {
         from: from ? dayStart(from) ?? undefined : undefined,
         to: to ? dayEnd(to) ?? undefined : undefined,
-        action: ACTIVITY_ACTIONS.includes(action as ActivityAction) ? (action as string) : undefined,
+        action: action ?? undefined,
         actor: actorFilter,
         page: format === "csv" ? 1 : page,
         perPage: format === "csv" ? 500 : perPage,
