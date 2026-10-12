@@ -59,6 +59,16 @@ export async function POST(request: NextRequest, route: RouteParams) {
       );
     }
 
+    // Panjang HWID sama dengan yang diterima /api/validate (16–128, tanpa spasi) —
+    // supaya nilai yang mustahil cocok dijawab 400, bukan 404 yang membingungkan.
+    if (!all && (hardwareId.length < 16 || hardwareId.length > 128 || /\s/.test(hardwareId))) {
+      return jsonError(
+        "`hardware_id` harus 16–128 karakter tanpa spasi (sama seperti yang dikirim tool)",
+        "validation_error",
+        400,
+      );
+    }
+
     try {
       const key = await findKey(ctx.admin, raw);
       if (!key) return jsonError("Key tidak ditemukan", "not_found", 404);

@@ -333,7 +333,7 @@ root/
 │   ├── sqlite-cli.mjs             # utilitas database: info | accounts | reset
 │   ├── sqlite-e2e-test.mjs        # uji end-to-end panel di mode SQLite (90 pemeriksaan, termasuk audit log & auto-ban)
 │   ├── validate-e2e-test.mjs      # uji end-to-end endpoint validasi di mode SQLite (28 pemeriksaan)
-│   ├── features-e2e-test.mjs      # uji tujuh fitur baru: akun, notifikasi, API key/v1, bot Telegram (91 pemeriksaan)
+│   ├── features-e2e-test.mjs      # uji tujuh fitur baru: akun, notifikasi, API key/v1, bot Telegram (94 pemeriksaan)
 │   ├── focus-test.mjs             # uji fokus input (regresi "keyboard mobile ketutup")
 │   └── sidebar-test.mjs           # uji tombol buka/tutup sidebar (44 pemeriksaan)
 ├── migration.sql                  # SQL siap run di Supabase SQL Editor
@@ -841,7 +841,7 @@ Dua perbedaan yang perlu diketahui:
 | `npm run make-sample` | Buat `docs/examples/sample-response.json` (response bertanda tangan) untuk menguji verifier sisi client |
 | `npm run verify:validate` | Uji end-to-end `/api/validate` di mode SQLite (keypair sementara + file DB sementara) — 28 pemeriksaan: signature Ed25519, TTL, HWID/slot, semua `reason`, anti-bruteforce, auto-ban, rate limit |
 | `npm run verify:sqlite` | Uji end-to-end panel di mode SQLite — 90 pemeriksaan: login (scrypt), session cookie, CRUD, generate + potong credit (`harga × quantity × max device`), perpanjang key pakai preset + tambah device, batas saldo (402), **pengembalian credit saat hapus key** (aktif vs expired vs banned vs milik sendiri), ban/unban dengan alasan terstruktur, reset HWID, **audit log** (jejak ban/unban/hapus/reset HWID/auto-ban, filter, CSV, jejak tetap ada setelah key dihapus), **unban auto-ban khusus Owner**, topup, akun nonaktif, logout, persistensi DB |
-| `npm run verify:features` | Uji end-to-end **tujuh fitur baru** di mode SQLite — 91 pemeriksaan: ganti password + sesi, penyesuaian credit, konfigurasi runtime (penjepitan nilai), analitik anti-abuse, notifikasi keluar (brute-force, auto-ban, saldo tipis, digest + anti-duplikat, webhook uji lokal), API key + `/api/v1` (auth, rate limit, kuota reset HWID, audit), bot Telegram (webhook, penautan, perintah), dan retensi/cleanup |
+| `npm run verify:features` | Uji end-to-end **tujuh fitur baru** di mode SQLite — 94 pemeriksaan: ganti password + sesi, penyesuaian credit, konfigurasi runtime (penjepitan nilai), analitik anti-abuse, notifikasi keluar (brute-force, auto-ban, saldo tipis, digest + anti-duplikat, webhook uji lokal), API key + `/api/v1` (auth, rate limit, kuota reset HWID, audit), bot Telegram (webhook, penautan, perintah), dan retensi/cleanup |
 | `npm run demo` (alias `npm run local`) | Jalankan panel mode SQLite di `http://localhost:3010` |
 | `npm run db:info` / `db:accounts` / `db:reset` | Utilitas database SQLite (lihat bagian 13) |
 | `npm run test:focus` | Uji fokus semua input di browser sungguhan (mobile emulation): pastikan fokus tidak lepas saat mengetik & kembali ke tombol pemicu saat modal ditutup. Butuh `npm i -D playwright && npx playwright install chromium`, dan server lokal (`npm run demo`) berjalan di port 3010 |

@@ -20,7 +20,7 @@ Node.js v22.22.3 (verifikasi 2026-10-10; sebelumnya v20.20.2) · Next.js 14.2.15
 | `npx next lint` | ✅ `No ESLint warnings or errors` |
 | `npx next build` | ✅ semua route terkompilasi (10 halaman + 23 API route + middleware) |
 | build mode SQLite (`XLOOP_DB=sqlite`) | ✅ sama-sama terkompilasi; `better-sqlite3` tetap di luar bundle server (`serverComponentsExternalPackages`) |
-| `npm run verify:features` | ✅ 91/91 (tujuh fitur baru — rincian di bagian 9.10) |
+| `npm run verify:features` | ✅ 94/94 (tujuh fitur baru — rincian di bagian 9.10) |
 | `npx tsc --noEmit` (ulang setelah 9.10) | ✅ 0 error |
 
 Ringkasan build (production):
@@ -665,7 +665,7 @@ Pemeriksaan yang dijalankan (2026-10-12):
 |---|---|
 | `npm run typecheck` | lulus |
 | `npm run lint` | lulus, tanpa warning |
-| `npm run verify:features` | **91/91** (4 notifikasi keluar benar-benar diterima server webhook uji) |
+| `npm run verify:features` | **94/94** (4 notifikasi keluar benar-benar diterima server webhook uji; termasuk 3 pemeriksaan validasi parameter `/api/v1` dari audit 9.11) |
 | `npm run verify:sqlite` | 90/90 (tanpa regresi) |
 | `npm run verify:validate` | 28/28 (tanpa regresi) |
 | Pratinjau HTTP (`:3010`, mode SQLite) | `/settings` Owner menampilkan kartu Batas & Sistem, Telegram, dan API Key; reseller melihat kartu Telegram (tautan akun) + API Key tanpa seksi bot Owner; `/api/settings`, `/api/api-keys`, `/api/telegram/link`, `/api/cron/digest` menjawab wajar |
@@ -685,6 +685,52 @@ Catatan bug yang ketemu & diperbaiki selama pengujian ini:
 4. **Kode error API publik** dimatikan memakai kode generik `forbidden` → sekarang `api_disabled`
    supaya integrasi bisa membedakan dari 403 kepemilikan key.
 5. Pesan error `connect` Telegram kini membedakan masalah jaringan dari token yang ditolak.
+
+---
+
+## 9.11 Audit menyeluruh — fitur lama & fitur baru (2026-10-12)
+
+Cakupan audit: seluruh menu (Owner: Dashboard, Tool Management, Duration Setting, Key List,
+Generate Key, Reseller, Credit Log, Audit Log, Validation Attempts, Pengaturan; reseller: menu yang
+sama tanpa empat menu Owner), tampilan **anonim** (redirect ke `/login`), ~80 probe HTTP ke semua
+API route inti (auth, keys, tools, durations, resellers, credits, audit, activity,
+validation-attempts, api-keys, `/api/v1/*`, telegram, cron), pemeriksaan statis (paritas skema
+SQLite vs `migration.sql`, label aktivitas, pemakaian pengaturan runtime), dan pemeriksaan HTML
+server-render (id ganda, `label for`, jumlah heading, `alt`).
+
+Hasil ringkas:
+
+- **Tidak ada error 5xx** di semua probe; semua penolakan memakai status yang benar (400/401/403/404/409/429).
+- **Otorisasi konsisten**: reseller ditolak 403 di API Owner dan diarahkan 307 ke `/dashboard` pada
+  route Owner; reseller hanya melihat data miliknya sendiri (key, credit, activity) walau
+  parameternya diubah.
+- **Tidak ada bentrok skema** Postgres vs SQLite untuk tujuh tabel baru; semua method adapter SQLite
+  yang dipakai kode tersedia; 13 aksi `activity_logs` match dengan labelnya; semua jalur reset HWID
+  sudah memakai batas dari Pengaturan.
+- **Penjepitan nilai** berjalan: `per_page`, rentang tanggal, `quantity`, `max_device`, ambang
+  analitik; `PUT /api/settings` menolak body non-objek dan mengabaikan seksi/tombol tak dikenal.
+
+Yang diperbaiki karena audit ini:
+
+1. **Filter API publik yang salah ketik kini ditolak.** `GET /api/v1/keys?status=…` dan
+   `GET /api/v1/credits?action=…` sebelumnya mengabaikan nilai tak dikenal (salah ketik seperti
+   `status=expird` justru mengembalikan **semua** key). Sekarang `400 validation_error` +
+   daftar nilai yang sah.
+2. **`hardware_id` di `/api/v1/keys/{id}/hwid-reset` divalidasi** (16–128 karakter tanpa spasi,
+   sama seperti `/api/validate`) sehingga nilai mustahil dijawab `400`, bukan `404 “Device tidak
+   ditemukan”` yang menyesatkan.
+3. **Label form kini benar-benar terkait ke kolomnya.** 53 dari 56 pemakaian `Field` tidak mengisi
+   `htmlFor`, jadi klik teks label tidak memfokuskan kolom dan screen reader tidak membacakan nama
+   kolom. `Field` sekarang memasang `id` otomatis bila isinya tepat satu kontrol (`Input`,
+   `Textarea`, `Select`); pemakaian lain dibiarkan agar id tidak salah pasang.
+4. **Satu halaman = satu `<h1>`.** Judul di breadcrumb Topbar tidak lagi `<h1>` (sebelumnya setiap
+   halaman punya dua `<h1>` kembar), konten halaman tetap memakai `<h1>`.
+
+Catatan operasional (bukan bug aplikasi): suite `verify:*` menjalankan `next dev`-nya sendiri dan
+memakai folder `.next` yang sama dengan `npm run demo`. Jalankan keduanya berurutan dan **restart
+`npm run demo` setelah suite**; kalau tidak, dev server lama bisa menjawab 404 karena cache
+`.next`-nya tertimpa.
+
 
 ---
 

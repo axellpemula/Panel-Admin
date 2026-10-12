@@ -731,16 +731,39 @@ async function main() {
       check("key milik reseller lain ditolak (403)", true, "dilewati: budi tidak punya key aktif");
     }
 
+    // Parameter yang salah harus dijawab 400 (bukan diam-diam diabaikan / 404 membingungkan).
+    const badStatus = await apiV1(token, "/api/v1/keys?status=expird");
+    check(
+      "filter status yang salah ditolak (400 validation_error)",
+      badStatus.status === 400 && badStatus.body?.code === "validation_error",
+      `${badStatus.status} ${badStatus.body?.code ?? ""}`,
+    );
+    const badAction = await apiV1(token, "/api/v1/credits?action=ngawur");
+    check(
+      "filter action credit yang salah ditolak (400 validation_error)",
+      badAction.status === 400 && badAction.body?.code === "validation_error",
+      `${badAction.status} ${badAction.body?.code ?? ""}`,
+    );
+    const shortHwid = await apiV1(token, `/api/v1/keys/${apiKeyValue}/hwid-reset`, {
+      method: "POST",
+      body: JSON.stringify({ hardware_id: "abc" }),
+    });
+    check(
+      "hardware_id terlalu pendek ditolak 400 (bukan 404)",
+      shortHwid.status === 400 && shortHwid.body?.code === "validation_error",
+      `${shortHwid.status} ${shortHwid.body?.code ?? ""}`,
+    );
+
     // Reset HWID via API + kuota cooldown (limit 1x/24 jam dari pengaturan).
     const generatedKeyId = db.prepare("SELECT id FROM keys WHERE key_value = ?").get(apiKeyValue).id;
     const nowIso = new Date().toISOString();
     db.prepare(
       "INSERT INTO device_logs (id, key_id, hardware_id, first_seen, last_seen) VALUES (?, ?, ?, ?, ?)",
-    ).run(randomUUID(), generatedKeyId, "HWID-API-TEST", nowIso, nowIso);
+    ).run(randomUUID(), generatedKeyId, "HWID-API-TEST-DEVICE-1", nowIso, nowIso);
 
     const resetFirst = await apiV1(token, `/api/v1/keys/${apiKeyValue}/hwid-reset`, {
       method: "POST",
-      body: JSON.stringify({ hardware_id: "HWID-API-TEST" }),
+      body: JSON.stringify({ hardware_id: "HWID-API-TEST-DEVICE-1" }),
     });
     check(
       "reset HWID satu device via API berhasil",
@@ -750,7 +773,7 @@ async function main() {
 
     db.prepare(
       "INSERT INTO device_logs (id, key_id, hardware_id, first_seen, last_seen) VALUES (?, ?, ?, ?, ?)",
-    ).run(randomUUID(), generatedKeyId, "HWID-API-TEST-2", nowIso, nowIso);
+    ).run(randomUUID(), generatedKeyId, "HWID-API-TEST-DEVICE-2", nowIso, nowIso);
     const resetSecond = await apiV1(token, `/api/v1/keys/${apiKeyValue}/hwid-reset`, {
       method: "POST",
       body: JSON.stringify({ all: true }),

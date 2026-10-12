@@ -108,7 +108,11 @@ export function Topbar({
               </span>
             </>
           ) : null}
-          <h1 className="truncate font-medium text-text">{title}</h1>
+          {/* Bukan <h1>: judul halaman sudah dimiliki konten (lihat h1 di tiap view),
+              di sini hanya breadcrumb — supaya satu halaman tetap satu judul utama. */}
+          <span className="truncate font-medium text-text" title={title}>
+            {title}
+          </span>
         </nav>
         <p className="hidden truncate text-label text-muted sm:block">
           {user.username} · {user.email}

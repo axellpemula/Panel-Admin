@@ -26,10 +26,22 @@ export async function GET(request: NextRequest) {
   return withApiKey(request, async (ctx) => {
     const params = request.nextUrl.searchParams;
 
+    // Filter yang tidak dikenal jangan diam-diam diabaikan: bot/skrip harus tahu
+    // bahwa nilainya salah (kalau tidak, `status=expird` malah mengembalikan semua key).
+    const status = (params.get("status") ?? "").trim().toLowerCase();
+    if (status && !["active", "expired", "banned"].includes(status)) {
+      return jsonError(
+        "Parameter `status` harus salah satu: active, expired, banned",
+        "validation_error",
+        400,
+        { allowed: ["active", "expired", "banned"] },
+      );
+    }
+
     try {
       const result = await listKeys(ctx.admin, {
         userId: ctx.profile.id,
-        status: params.get("status") ?? undefined,
+        status: status || undefined,
         search: params.get("q") ?? undefined,
         toolTypeId: params.get("tool_type_id") ?? undefined,
         versionId: params.get("version_id") ?? undefined,

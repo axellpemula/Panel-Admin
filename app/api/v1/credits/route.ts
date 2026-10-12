@@ -24,8 +24,18 @@ export async function GET(request: NextRequest) {
         .eq("user_id", ctx.profile.id)
         .order("created_at", { ascending: false });
 
-      const action = params.get("action");
-      if (action) query = query.eq("action", action);
+      const action = (params.get("action") ?? "").trim().toLowerCase();
+      if (action) {
+        if (!["topup", "generate", "extend", "refund", "adjustment"].includes(action)) {
+          return jsonError(
+            "Parameter `action` harus salah satu: topup, generate, extend, refund, adjustment",
+            "validation_error",
+            400,
+            { allowed: ["topup", "generate", "extend", "refund", "adjustment"] },
+          );
+        }
+        query = query.eq("action", action);
+      }
 
       const fromParam = params.get("from");
       if (fromParam) {
