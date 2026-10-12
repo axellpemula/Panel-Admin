@@ -90,17 +90,24 @@ interface TelegramUpdate {
 }
 
 const HELP_TEXT = [
-  "Perintah yang tersedia:",
-  "/menu — menu tombol",
-  "<code>/saldo</code> — sisa credit &amp; ringkasan key",
-  "<code>/preset</code> — daftar preset durasi",
-  "<code>/keys [active|expired|banned]</code> — key terbaru",
-  "<code>/key XLVP-XXXX-XXXX</code> — detail key + device",
-  "<code>/generate &lt;preset&gt; [qty] [device]</code> — buat key cepat",
-  "<code>/reset XLVP-XXXX-XXXX &lt;all|nomor device&gt;</code> — reset HWID",
-  "<code>/unlink</code> — lepas tautan chat ini",
+  "📖 <b>Cara pakai bot XLOOP PANEL</b>",
   "",
-  "Atau pakai ⚡ Generate di /menu untuk memilih tool &amp; version.",
+  "<b>Cek data</b>",
+  "/saldo — credit &amp; ringkasan key",
+  "/keys [active|expired|banned] — daftar key (halaman ‹ ›)",
+  "/key XLVP-XXXX-XXXX — detail key + device",
+  "/preset — daftar harga durasi",
+  "",
+  "<b>Aksi</b>",
+  "/generate &lt;preset&gt; [jumlah] [device] — buat key cepat",
+  "&nbsp;&nbsp;&nbsp;contoh: <code>/generate 1 3 2</code>",
+  "/reset XLVP-XXXX-XXXX [all|nomor] — reset HWID",
+  "",
+  "<b>Lainnya</b>",
+  "/menu — daftar tombol (paling gampang)",
+  "/unlink — lepas tautan chat ini",
+  "",
+  "💡 Tap key mana pun di daftar untuk detail &amp; reset.",
 ].join("\n");
 
 /** Bungkus nilai (key/HWID) jadi blok kode yang bisa di-tap-copy. */
@@ -110,6 +117,48 @@ function code(value: string): string {
 
 function bold(value: string): string {
   return `<b>${escapeHtml(value)}</b>`;
+}
+
+const BULAN_ID = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+
+/** "19 Okt 2026" (WIB, tanpa dependency locale). */
+function formatTanggalId(iso: string): string {
+  const date = new Date(new Date(iso).getTime() + 7 * 60 * 60 * 1000);
+  if (Number.isNaN(date.getTime())) return iso.slice(0, 10);
+  return `${date.getUTCDate()} ${BULAN_ID[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
+}
+
+/** "6 hari lagi" / "hari ini" / "3 hari lewat" — untuk label expired. */
+function sisaHariLabel(expiredAt: string | null): string | null {
+  if (!expiredAt) return null;
+  const diffMs = new Date(expiredAt).getTime() - Date.now();
+  const days = Math.ceil(diffMs / 86_400_000);
+  if (days > 1) return `${days} hari lagi`;
+  if (days === 1) return "besok";
+  if (days === 0) return "hari ini";
+  return `lewat ${Math.abs(days)} hari`;
+}
+
+const STATUS_EMOJI: Record<string, string> = { active: "✅", expired: "⌛", banned: "⛔" };
+
+// ---------------------------------------------------------------------------
+// Pengunci aksi dobel (double-tap tombol) — sederhana, per proses.
+// ---------------------------------------------------------------------------
+
+const actionLocks = new Map<string, number>();
+
+/** true kalau aksi sama dari chat yang sama masih dalam jeda (abaikan). */
+function actionLocked(chat: string, action: string, windowMs = 5_000): boolean {
+  const id = `${chat}:${action}`;
+  const now = Date.now();
+  if ((actionLocks.get(id) ?? 0) > now) return true;
+  actionLocks.set(id, now + windowMs);
+  if (actionLocks.size > 500) {
+    [...actionLocks.entries()].forEach(([key, until]) => {
+      if (until <= now) actionLocks.delete(key);
+    });
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -269,15 +318,18 @@ async function handleMessage(
   if (command === "/start") {
     const candidate = (args[0] ?? "").toUpperCase();
     if (!candidate) {
+      const firstName = message?.from?.first_name?.trim();
       await send(
         [
-          `Halo ${escapeHtml(message?.from?.first_name ?? "")}! 👋`.trimEnd(),
-          "Bot ini milik XLOOP PANEL.",
+          `Halo${firstName ? ` ${escapeHtml(firstName)}` : ""}! 👋`,
+          `Aku bot ${bold("XLOOP PANEL")} — asisten cek saldo, kelola key, dan generate langsung dari Telegram.`,
           "",
-          "Untuk menautkan akun: buka panel → Pengaturan → Telegram → Tautkan, lalu kirim",
-          `${code("/start <KODE>")} ke chat ini.`,
+          "Belum tertaut? Hubungkan akun dulu:",
+          "1️⃣ Buka panel → Pengaturan → Telegram",
+          "2️⃣ Tap “Tautkan akun”, salin kodenya",
+          `3️⃣ Kirim di sini: ${code("/start KODE")}`,
           "",
-          "Kalau chat sudah tertaut, pakai tombol di bawah 👇",
+          "Sudah tertaut? Langsung buka menu 👇",
         ].join("\n"),
         { keyboard: mainMenuKeyboard() },
       );
@@ -293,9 +345,12 @@ async function handleMessage(
 
     await send(
       [
-        `Berhasil! Chat ini tertaut ke akun ${bold(linked.profile.username)} (${escapeHtml(linked.profile.role)}).`,
+        "✅ <b>Tautan berhasil!</b>",
         "",
-        "Kamu akan menerima notifikasi penting di sini. Mulai dari menu ini 👇",
+        `Chat ini sekarang terhubung ke akun ${bold(linked.profile.username)} (${escapeHtml(linked.profile.role)}).`,
+        "Notifikasi penting — key diblokir, credit masuk, pengingat expired — akan muncul di sini.",
+        "",
+        "Mulai dari menu 👇",
       ].join("\n"),
       { keyboard: mainMenuKeyboard() },
     );
@@ -316,7 +371,7 @@ async function handleMessage(
   try {
     switch (command) {
       case "/menu":
-        await send("Silakan pilih 👇", { keyboard: mainMenuKeyboard() });
+        await send("🏠 <b>Menu</b> — pilih aksinya 👇", { keyboard: mainMenuKeyboard() });
         return;
 
       case "/help":
@@ -335,7 +390,14 @@ async function handleMessage(
           targetLabel: profile.username,
           detail: { chat_id: chat, source: "bot" },
         });
-        await send(escapeHtml("Tautan chat ini sudah dilepas. Notifikasi tidak akan dikirim ke sini lagi."));
+        await send(
+          [
+            "🔓 <b>Tautan dilepas.</b>",
+            "",
+            "Chat ini tidak lagi menerima notifikasi & perintah akunmu.",
+            "Bisa ditautkan lagi kapan saja dari panel → Pengaturan → Telegram.",
+          ].join("\n"),
+        );
         return;
       }
 
@@ -396,7 +458,11 @@ async function handleMessage(
 
       default:
         await send(
-          [escapeHtml(`Perintah ${rawCommand} tidak dikenal.`), "", HELP_TEXT].join("\n"),
+          [
+            `🤔 Perintah ${code(rawCommand)} tidak dikenal.`,
+            "",
+            "Tap menu di bawah, atau ketik /help untuk daftar lengkap.",
+          ].join("\n"),
           { keyboard: mainMenuKeyboard() },
         );
     }
@@ -466,6 +532,10 @@ async function handleCallbackQuery(
         else if (target === "preset") await sendPresets(admin, send);
         else if (target === "keys") await sendKeysPage(admin, profile, send, null, 1);
         else if (target === "unlink") {
+          if (actionLocked(chat, "unlink", 3_000)) {
+            await answer();
+            return;
+          }
           await admin.from("telegram_links").delete().eq("user_id", profile.id);
           await recordActivity(admin, {
             actorId: profile.id,
@@ -476,7 +546,13 @@ async function handleCallbackQuery(
             targetLabel: profile.username,
             detail: { chat_id: chat, source: "bot_menu" },
           });
-          await send(escapeHtml("Tautan chat ini sudah dilepas. Sampai jumpa! 👋"));
+          await send(
+            [
+              "🔓 <b>Tautan dilepas.</b>",
+              "",
+              "Sampai jumpa! Chat ini bisa ditautkan lagi kapan saja dari panel → Pengaturan → Telegram.",
+            ].join("\n"),
+          );
         } else await send("Silakan pilih 👇", { keyboard: mainMenuKeyboard() });
         await answer();
         return;
@@ -502,10 +578,14 @@ async function handleCallbackQuery(
         const target = rest[1] ?? "all";
         await send(
           [
-            `♻️ Reset HWID ${code(keyValue)}?`,
-            target === "all" ? "Semua device akan dihapus — pemakai harus login/HWID baru." : `Device #${escapeHtml(target)} akan dihapus.`,
+            `♻️ <b>Reset HWID?</b>`,
+            code(keyValue),
             "",
-            escapeHtml("Aksi tercatat di audit log & kuota cooldown reset tetap berlaku."),
+            target === "all"
+              ? "Yang dihapus: <b>semua device</b>. Pemakai lama tidak bisa login lagi — harus aktifasi dengan HWID baru."
+              : `Yang dihapus: <b>device #${escapeHtml(target)}</b>. Device lain tetap aman.`,
+            "",
+            escapeHtml("Aksi tercatat di audit log & kuota cooldown reset tetap berlaku. Lanjut?"),
           ].join("\n"),
           { keyboard: resetConfirmKeyboard(keyValue, target) },
         );
@@ -514,6 +594,10 @@ async function handleCallbackQuery(
       }
 
       case "rstgo": {
+        if (actionLocked(chat, "reset")) {
+          await answer("Reset sebelumnya masih diproses…");
+          return;
+        }
         const keyValue = rest[0] ?? "";
         const target = rest[1] ?? "all";
         await executeReset(admin, profile, send, keyValue, target, false);
@@ -569,6 +653,10 @@ async function handleCallbackQuery(
 
       case "gen": {
         if (rest[0] === "go") {
+          if (actionLocked(chat, "generate")) {
+            await answer("Generate sebelumnya masih diproses…");
+            return;
+          }
           const [t, v, p, q, d] = rest.slice(1).map((value) => Number.parseInt(value, 10) || 1);
           await answer("Memproses…");
           await executeGenerate(admin, profile, send, t, v, p, q, d);
@@ -611,13 +699,16 @@ async function sendSaldo(admin: SupabaseClient<Database>, profile: ProfileRow, s
   const isOwner = profile.role === "owner";
   await send(
     [
-      `💰 ${bold("Saldo")}`,
-      `Akun: ${bold(profile.username)} (${isOwner ? "Owner" : "Reseller"})`,
-      `Sisa credit: ${bold(formatNumber(profile.credit))}`,
+      `💰 <b>Saldo — ${escapeHtml(profile.username)}</b> (${isOwner ? "Owner" : "Reseller"})`,
       "",
-      `🔑 Aktif: ${formatNumber(active.total)} · ⌛ Expired: ${formatNumber(expired.total)} · ⛔ Banned: ${formatNumber(banned.total)}`,
+      `Credit tersedia: ${bold(formatNumber(profile.credit))}`,
+      `Key: ✅ ${formatNumber(active.total)} aktif · ⌛ ${formatNumber(expired.total)} expired · ⛔ ${formatNumber(banned.total)} banned`,
       "",
-      escapeHtml(isOwner ? "Owner tidak dipotong credit saat generate." : "Harga 1 unit = 1 key × 1 device."),
+      escapeHtml(
+        isOwner
+          ? "Owner tidak dipotong credit saat generate."
+          : "Biaya generate = harga preset × jumlah key × device.",
+      ),
     ].join("\n"),
     { keyboard: [MENU_HOME_ROW] },
   );
@@ -650,11 +741,12 @@ async function sendPresets(admin: SupabaseClient<Database>, send: SendFn) {
 
   await send(
     [
-      "📋 Preset durasi aktif:",
+      "📋 <b>Preset durasi aktif</b>",
       "",
       ...lines,
       "",
-      escapeHtml("Pakai nomornya: /generate 1 2 1 — atau tap ⚡ Generate di /menu."),
+      escapeHtml("Contoh: /generate 1 2 1 → 2 key 1 device pakai preset paling atas."),
+      "Atau tap ⚡ Generate di /menu untuk pilih tool &amp; version dulu.",
     ].join("\n"),
     { keyboard: [MENU_HOME_ROW] },
   );
@@ -684,14 +776,22 @@ async function sendKeysPage(
     return;
   }
 
-  const lines = result.items.map(
-    (item) =>
-      `${code(item.key_value)} · ${escapeHtml(item.tool_name)}${item.version_name ? ` ${escapeHtml(item.version_name)}` : ""} · ${escapeHtml(item.status)} · ${item.devices_used}/${item.max_device} device`,
-  );
-  const statusLabel = status ? ` (${status})` : "";
+  const lines = result.items.map((item) => {
+    const emoji = STATUS_EMOJI[item.status] ?? "•";
+    const sisa = sisaHariLabel(item.expired_at);
+    const sisaText = item.status === "active" && sisa ? ` · ⏳ ${sisa}` : "";
+    return `${emoji} ${code(item.key_value)}\n    ${escapeHtml(item.tool_name)}${item.version_name ? ` ${escapeHtml(item.version_name)}` : ""} · ${item.devices_used}/${item.max_device} device${sisaText}`;
+  });
+  const statusLabel = status ? ` (${status})` : " (semua)";
 
   await send(
-    [`🔑 Key${escapeHtml(statusLabel)} — halaman ${result.page}/${result.totalPages}:`, "", ...lines].join("\n"),
+    [
+      `🔑 <b>Key${escapeHtml(statusLabel)}</b> — halaman ${result.page}/${result.totalPages}`,
+      "",
+      ...lines,
+      "",
+      "💡 Tap key untuk detail &amp; reset.",
+    ].join("\n"),
     { keyboard: keysKeyboard(status, result.page, result.totalPages, result.items.map((item) => item.key_value)) },
   );
 }
@@ -714,21 +814,27 @@ async function sendKeyDetail(
   }
 
   const devices = await listKeyDevices(admin, found.id);
+  const sisa = sisaHariLabel(found.expired_at);
+  const expiryLine = found.expired_at
+    ? `Aktif sampai: <b>${formatTanggalId(found.expired_at)}</b>${found.status === "active" && sisa ? ` (${escapeHtml(sisa)})` : ""}`
+    : "Aktif sampai: <b>selamanya</b> (lifetime)";
 
   await send(
     [
       `🔑 ${code(found.key_value)}`,
-      `Status: ${escapeHtml(found.status)}`,
+      "",
+      `Status: ${STATUS_EMOJI[found.status] ?? "•"} ${escapeHtml(found.status)}`,
       `Tool: ${escapeHtml(found.tool_name)}${found.version_name ? ` ${escapeHtml(found.version_name)}` : ""}`,
       `Device: ${devices.length}/${found.max_device}`,
-      found.expired_at ? `Expired: ${found.expired_at.slice(0, 10)}` : "Expired: lifetime",
-      found.status === "banned" ? "⛔ Key sedang diblokir (banned)." : "",
+      expiryLine,
+      found.status === "banned" ? "⛔ Key sedang diblokir — hubungi Owner kalau salah." : "",
       "",
       devices.length > 0
         ? [
-            "Device terdaftar:",
+            "<b>Device terdaftar:</b>",
             ...devices.map(
-              (device, index) => `${index + 1}. ${escapeHtml(device.hardware_id)}`,
+              (device, index) =>
+                `${index + 1}. <code>${escapeHtml(device.hardware_id.length > 42 ? `${device.hardware_id.slice(0, 42)}…` : device.hardware_id)}</code>`,
             ),
           ].join("\n")
         : "Belum ada device terdaftar.",
@@ -821,12 +927,14 @@ async function executeReset(
 
   await send(
     [
-      `✅ Reset berhasil (${result.removed} device dihapus)`,
+      `✅ <b>Reset selesai</b> — ${result.removed} device dihapus`,
       "",
       `Key: ${code(found.key_value)}`,
       result.cooldown && typeof result.cooldown.remaining === "number"
-        ? `Kuota reset tersisa: ${Math.max(0, result.cooldown.remaining)}× per ${limits.windowHours} jam`
+        ? `Sisa kuota reset: ${bold(`${Math.max(0, result.cooldown.remaining)}×`)} per ${limits.windowHours} jam`
         : "Owner bebas kuota reset.",
+      "",
+      escapeHtml("Pemakai tinggal login ulang — device baru terdaftar otomatis."),
     ].join("\n"),
     { keyboard: [MENU_HOME_ROW] },
   );
@@ -878,7 +986,10 @@ async function renderWizardTools(admin: SupabaseClient<Database>, send: SendFn) 
     { text: `🧰 ${tool.name}`, callback_data: `gentool:${index + 1}` },
   ]);
   rows.push([{ text: "❌ Batal", callback_data: "wizard:cancel" }]);
-  await send("⚡ Pilih tool untuk key baru:", { keyboard: rows });
+  await send(
+    ["⚡ <b>Buat key baru</b> — langkah 1/5", "", "Pilih tool:"].join("\n"),
+    { keyboard: rows },
+  );
 }
 
 async function renderWizardVersions(admin: SupabaseClient<Database>, send: SendFn, toolNumber: number) {
@@ -902,7 +1013,10 @@ async function renderWizardVersions(admin: SupabaseClient<Database>, send: SendF
     { text: "◀️ Ganti tool", callback_data: "wizard:start" },
     { text: "❌ Batal", callback_data: "wizard:cancel" },
   ]);
-  await send(`📦 Pilih version untuk ${bold(tool.name)}:`, { keyboard: rows });
+  await send(
+    ["📦 <b>Buat key baru</b> — langkah 2/5", "", `Pilih version untuk ${bold(tool.name)}:`].join("\n"),
+    { keyboard: rows },
+  );
 }
 
 async function renderWizardPresets(
@@ -943,7 +1057,10 @@ async function renderWizardPresets(
     { text: "◀️ Ganti version", callback_data: `gentool:${toolNumber}` },
     { text: "❌ Batal", callback_data: "wizard:cancel" },
   ]);
-  await send("⏱ Pilih durasi (preset):", { keyboard: rows });
+  await send(
+    ["⏱ <b>Buat key baru</b> — langkah 3/5", "", "Pilih durasi (harga per device):"].join("\n"),
+    { keyboard: rows },
+  );
 }
 
 async function renderWizardQty(
@@ -960,7 +1077,10 @@ async function renderWizardQty(
     { text: "◀️ Ganti preset", callback_data: `genver:${toolNumber}:${versionNumber}` },
     { text: "❌ Batal", callback_data: "wizard:cancel" },
   ]);
-  await send("🔢 Berapa jumlah key?", { keyboard: rows });
+  await send(
+    ["🔢 <b>Buat key baru</b> — langkah 4/5", "", "Berapa jumlah key?"].join("\n"),
+    { keyboard: rows },
+  );
 }
 
 async function renderWizardDevices(
@@ -978,7 +1098,10 @@ async function renderWizardDevices(
     { text: "◀️ Ganti jumlah", callback_data: `genpre:${toolNumber}:${versionNumber}:${presetNumber}` },
     { text: "❌ Batal", callback_data: "wizard:cancel" },
   ]);
-  await send("📱 Berapa device per key?", { keyboard: rows });
+  await send(
+    ["📱 <b>Buat key baru</b> — langkah 5/5", "", "Berapa device per key?"].join("\n"),
+    { keyboard: rows },
+  );
 }
 
 async function renderWizardConfirm(
@@ -998,13 +1121,18 @@ async function renderWizardConfirm(
   }
 
   const totalCost = preview.preset.credit_cost * qty * device;
+  const isOwner = profile.role === "owner";
+  const saldoLine = isOwner
+    ? "Biaya: <b>bebas</b> (Owner)"
+    : `Biaya: <b>${formatNumber(totalCost)} credit</b> · saldo ${formatNumber(profile.credit)} → ${formatNumber(Math.max(0, profile.credit - totalCost))}`;
   await send(
     [
-      "🧾 Konfirmasi generate:",
+      "🧾 <b>Cek terakhir sebelum buat:</b>",
+      "",
       `Tool: ${bold(preview.tool.name)} ${escapeHtml(preview.version.name)}`,
       `Durasi: ${escapeHtml(presetLabel(preview.preset))}`,
       `Jumlah: ${qty} key × ${device} device`,
-      `Biaya: ${bold(`${formatNumber(totalCost)} credit`)}${profile.role === "owner" ? " (Owner bebas biaya)" : ""}`,
+      saldoLine,
       "",
       escapeHtml("Lanjutkan?"),
     ].join("\n"),
@@ -1084,14 +1212,17 @@ async function executeGenerate(
 
   await send(
     [
-      `✅ ${bold(`${result.keys.length} key dibuat`)}`,
+      `✅ <b>${result.keys.length} key berhasil dibuat!</b>`,
       "",
-      ...result.keys.map((item) => code(item.key_value)),
+      ...result.keys.map((item) =>
+        item.expired_at
+          ? `${code(item.key_value)} — aktif s/d ${formatTanggalId(item.expired_at)}`
+          : `${code(item.key_value)} — lifetime`,
+      ),
       "",
       `${escapeHtml(result.summary.tool_name)} ${escapeHtml(result.summary.version_name)} · ${escapeHtml(result.summary.duration_label)}`,
-      `${result.keys.length} × ${result.summary.max_device} device`,
-      `Biaya: ${formatNumber(result.summary.credit_cost)} credit`,
-      `Sisa credit: ${bold(formatNumber(result.summary.credit_balance_after))}`,
+      `${result.keys.length} key × ${result.summary.max_device} device`,
+      `Biaya: ${formatNumber(result.summary.credit_cost)} credit · Sisa saldo: ${bold(formatNumber(result.summary.credit_balance_after))}`,
     ].join("\n"),
     { keyboard: [MENU_HOME_ROW] },
   );

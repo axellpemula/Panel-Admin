@@ -193,6 +193,16 @@ export async function GET(request: NextRequest) {
 
       const dateKey = jakartaDateKey(now);
       for (const [userId, list] of byOwner) {
+        // Dedupe harian eksplisit: window dedupe umum (menit) terlalu pendek
+        // untuk pengingat per hari, jadi cek log sukses dengan kunci hari ini.
+        const { data: sentToday } = await admin
+          .from("notification_logs")
+          .select("id")
+          .eq("dedupe_key", `expiring_digest:${userId}:${dateKey}`)
+          .eq("success", true)
+          .limit(1);
+        if ((sentToday ?? []).length > 0) continue;
+
         await notifyResellerEvent(admin, {
           userId,
           event: "expiring_digest",
